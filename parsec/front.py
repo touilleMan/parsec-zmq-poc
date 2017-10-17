@@ -1,5 +1,8 @@
 import zmq
 import random, string
+import readline
+import json
+from pprint import pprint
 
 
 def _unique_enough_id():
@@ -18,10 +21,22 @@ def main(addr):
         cmd = input('%s>> ' % conn_id)
         if cmd in ['q', 'quit']:
             print('bye ;-)')
-            break
-        socket.send_json({'cmd': cmd, 'conn_id': conn_id})
-        resp = socket.recv_json()
-        print(resp)
+            return False  # Don't restart main
+        try:
+            msg = {**json.loads(cmd), 'conn_id': conn_id}
+        except:
+            try:
+                cmd, path = cmd.split()
+                msg = {'cmd': cmd, 'path': path, 'conn_id': conn_id}
+            except:
+                print('Invalid format')
+                continue
+        socket.send_json(msg)
+        try:
+            resp = socket.recv_json()
+        except KeyboardInterrupt:
+            return True  # Restart main
+        pprint(resp)
 
 
 if __name__ == '__main__':
@@ -29,4 +44,5 @@ if __name__ == '__main__':
     if len(sys.argv) != 2:
         print("usage: front.py <address>")
         raise SystemExit(1)
-    main(sys.argv[1])
+    while main(sys.argv[1]):
+        continue
