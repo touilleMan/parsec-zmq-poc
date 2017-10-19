@@ -57,12 +57,11 @@ blocks = {
 # Pipeline stages
 
 
-def init_stage():
-    context = zmq.Context()
+def init_stage(context):
     puller = context.socket(zmq.PULL)
-    puller.bind('ipc://init')
+    puller.bind('inproc://init')
     pusher_to_umr = context.socket(zmq.PUSH)
-    pusher_to_umr.connect('ipc://umr')
+    pusher_to_umr.connect('inproc://umr')
 
     print('INIT: ready')
     while True:
@@ -78,18 +77,17 @@ def init_stage():
         )
 
 
-def user_manifest_read_stage():
-    context = zmq.Context()
+def user_manifest_read_stage(context):
     puller = context.socket(zmq.PULL)
-    puller.bind('ipc://umr')
+    puller.bind('inproc://umr')
     pusher_to_reply = context.socket(zmq.PUSH)
-    pusher_to_reply.connect('ipc://reply')
+    pusher_to_reply.connect('inproc://reply')
     pusher_to_fmr = context.socket(zmq.PUSH)
-    pusher_to_fmr.connect('ipc://fmr')
+    pusher_to_fmr.connect('inproc://fmr')
     pusher_to_fmw = context.socket(zmq.PUSH)
-    pusher_to_fmw.connect('ipc://fmw')
+    pusher_to_fmw.connect('inproc://fmw')
     pusher_to_umw = context.socket(zmq.PUSH)
-    pusher_to_umw.connect('ipc://umw')
+    pusher_to_umw.connect('inproc://umw')
 
     print('UMR: ready')
     while True:
@@ -142,12 +140,11 @@ def user_manifest_read_stage():
             pusher_to_reply.send_json(msg)
 
 
-def user_manifest_write_stage():
-    context = zmq.Context()
+def user_manifest_write_stage(context):
     puller = context.socket(zmq.PULL)
-    puller.bind('ipc://umw')
+    puller.bind('inproc://umw')
     pusher_to_reply = context.socket(zmq.PUSH)
-    pusher_to_reply.connect('ipc://reply')
+    pusher_to_reply.connect('inproc://reply')
 
     print('UMW: ready')
     while True:
@@ -175,14 +172,13 @@ def user_manifest_write_stage():
             pusher_to_reply.send_json(msg)
 
 
-def file_manifest_read_stage():
-    context = zmq.Context()
+def file_manifest_read_stage(context):
     puller = context.socket(zmq.PULL)
-    puller.bind('ipc://fmr')
+    puller.bind('inproc://fmr')
     pusher_to_reply = context.socket(zmq.PUSH)
-    pusher_to_reply.connect('ipc://reply')
+    pusher_to_reply.connect('inproc://reply')
     pusher_to_br = context.socket(zmq.PUSH)
-    pusher_to_br.connect('ipc://br')
+    pusher_to_br.connect('inproc://br')
 
     print('FMR: ready')
     while True:
@@ -202,14 +198,13 @@ def file_manifest_read_stage():
         pusher_to_br.send_json(msg)
 
 
-def file_manifest_write_stage():
-    context = zmq.Context()
+def file_manifest_write_stage(context):
     puller = context.socket(zmq.PULL)
-    puller.bind('ipc://fmw')
+    puller.bind('inproc://fmw')
     pusher_to_reply = context.socket(zmq.PUSH)
-    pusher_to_reply.connect('ipc://reply')
+    pusher_to_reply.connect('inproc://reply')
     pusher_to_umw = context.socket(zmq.PUSH)
-    pusher_to_umw.connect('ipc://umw')
+    pusher_to_umw.connect('inproc://umw')
 
     print('FMW: ready')
     while True:
@@ -236,14 +231,13 @@ def file_manifest_write_stage():
             pusher_to_reply.send_json(msg)
 
 
-def block_read_stage():
-    context = zmq.Context()
+def block_read_stage(context):
     puller = context.socket(zmq.PULL)
-    puller.bind('ipc://br')
+    puller.bind('inproc://br')
     pusher_to_reply = context.socket(zmq.PUSH)
-    pusher_to_reply.connect('ipc://reply')
+    pusher_to_reply.connect('inproc://reply')
     pusher_to_bw = context.socket(zmq.PUSH)
-    pusher_to_bw.connect('ipc://bw')
+    pusher_to_bw.connect('inproc://bw')
 
     print('BR: ready')
     while True:
@@ -270,12 +264,11 @@ def block_read_stage():
             pusher_to_bw.send_json(msg)
 
 
-def block_write_stage():
-    context = zmq.Context()
+def block_write_stage(context):
     puller = context.socket(zmq.PULL)
-    puller.bind('ipc://bw')
+    puller.bind('inproc://bw')
     pusher_to_fmw = context.socket(zmq.PUSH)
-    pusher_to_fmw.connect('ipc://fmw')
+    pusher_to_fmw.connect('inproc://fmw')
 
     print('BW: ready')
     while True:
@@ -299,12 +292,11 @@ def block_write_stage():
         pusher_to_fmw.send_json(msg)
 
 
-def reply_stage():
-    context = zmq.Context()
+def reply_stage(context):
     puller = context.socket(zmq.PULL)
-    puller.bind('ipc://reply')
+    puller.bind('inproc://reply')
     pusher_to_finish = context.socket(zmq.PUSH)
-    pusher_to_finish.connect('ipc://finish')
+    pusher_to_finish.connect('inproc://finish')
 
     print('REPLY: ready')
     while True:
@@ -318,16 +310,16 @@ def reply_stage():
 
 
 class Pipeline:
-    def __init__(self):
+    def __init__(self, context):
         def bootstrap(func):
 
-            def x(*args, **kwargs):
-                print('started %s(args=%s, kwargs=%s)' % (func.__name__, args, kwargs))
-                ret = func(*args, **kwargs)
-                print('stopped %s ret=%s' % (func.__name__, ret))
+            def start():
+                print('started %s' % func.__name__)
+                ret = func(context)
+                print('stopped %s' % func.__name__)
                 return ret
 
-            return x
+            return start
 
         self._stage_br = Thread(target=bootstrap(block_read_stage), daemon=False)
         self._stage_bw = Thread(target=bootstrap(block_write_stage), daemon=False)
@@ -371,11 +363,11 @@ def main(addr):
     client.bind(addr)
 
     pusher = context.socket(zmq.PUSH)
-    pusher.connect('ipc://init')
+    pusher.connect('inproc://init')
     puller = context.socket(zmq.PULL)
-    puller.bind('ipc://finish')
+    puller.bind('inproc://finish')
 
-    pipeline = Pipeline()
+    pipeline = Pipeline(context)
     pipeline.start()
 
     graceful_shudown = False
