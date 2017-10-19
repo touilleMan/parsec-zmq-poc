@@ -1,4 +1,5 @@
 import zmq
+import zmq.devices
 import signal
 import base64
 import json
@@ -18,40 +19,8 @@ from uuid import uuid4
 # +---------------------------------------------------------+
 
 
-# Dummy data
-
-
-user_manifest = {
-    '/': {'type': 'folder'},
-    '/foo': {'type': 'folder'},
-    '/foo/sub.txt': {'type': 'file', 'id': '001'},
-    '/bar.txt': {'type': 'file', 'id': '002'},
-}
-
-
-file_manifests = {
-    '001': {
-        'blocks': [
-            {'id': '001001'},
-            {'id': '001002'},
-        ]
-    },
-    '002': {
-        'blocks': [
-            {'id': '002001'},
-            {'id': '002002'},
-        ]
-    }
-}
-
-
-blocks = {
-    # Should be bytes, but use str instead not to bother with json encoding
-    '001001': 'hello ',
-    '001002': 'world !',
-    '002001': 'foo',
-    '002002': 'bar',
-}
+# Initialized during user_manifest_read_stage
+user_manifest = None
 
 
 # Pipeline stages
@@ -73,7 +42,8 @@ def init_stage(context):
             break
         # TODO: check message format here ?
         pusher_to_umr.send_json(
-            {'msg': msg, 'umr': {'path': msg['path']}, 'cmd': msg['cmd'], '__client_id__': msg.pop('__client_id__')}
+            {'msg': msg, 'umr': {'path': msg['path']}, 'cmd': msg['cmd'],
+             '__client_id__': msg.pop('__client_id__')}
         )
 
 
@@ -88,6 +58,14 @@ def user_manifest_read_stage(context):
     pusher_to_fmw.connect('inproc://fmw')
     pusher_to_umw = context.socket(zmq.PUSH)
     pusher_to_umw.connect('inproc://umw')
+
+    backend = context.socket(zmq.REQ)
+    backend.connect('inproc://backend')
+    global user_manifest
+    backend.send_json({'cmd': 'user_manifest_read'})
+    resp = backend.recv_json()
+    assert resp['status'] == 'ok'
+    user_manifest = resp['content']
 
     print('UMR: ready')
     while True:
@@ -146,6 +124,9 @@ def user_manifest_write_stage(context):
     pusher_to_reply = context.socket(zmq.PUSH)
     pusher_to_reply.connect('inproc://reply')
 
+    backend = context.socket(zmq.REQ)
+    backend.connect('inproc://backend')
+
     print('UMW: ready')
     while True:
         msg = puller.recv_json()
@@ -170,6 +151,10 @@ def user_manifest_write_stage(context):
             else:
                 msg['resp'] = {'status': 'unknown_path'}
             pusher_to_reply.send_json(msg)
+        # Sync user manifest with the backend here
+        # TODO: should be done in the synchronizer
+        backend.send_json({'cmd': 'user_manifest_write', 'content': user_manifest})
+        assert backend.recv_json()['status'] == 'ok'
 
 
 def file_manifest_read_stage(context):
@@ -180,6 +165,9 @@ def file_manifest_read_stage(context):
     pusher_to_br = context.socket(zmq.PUSH)
     pusher_to_br.connect('inproc://br')
 
+    backend = context.socket(zmq.REQ)
+    backend.connect('inproc://backend')
+
     print('FMR: ready')
     while True:
         msg = puller.recv_json()
@@ -188,11 +176,13 @@ def file_manifest_read_stage(context):
             pusher_to_br.send_json(msg)
             print('FMR: exit')
             break
-        if msg['fmr']['id'] not in file_manifests:
+        backend.send_json({'cmd': 'file_manifest_read', 'id': msg['fmr']['id']})
+        resp = backend.recv_json()
+        if resp['status'] != 'ok':
             print('Unknown file manifest %s' % msg['fmr']['id'])
             msg['resp'] = {'status': 'unknown_file_manifest'}
             pusher_to_reply.send_json(msg)
-        file_manifest = file_manifests[msg['fmr']['id']]
+        file_manifest = resp['content']
         # TODO: check which blocks we should read
         msg['br'] = {'blocks': file_manifest['blocks']}
         pusher_to_br.send_json(msg)
@@ -206,6 +196,9 @@ def file_manifest_write_stage(context):
     pusher_to_umw = context.socket(zmq.PUSH)
     pusher_to_umw.connect('inproc://umw')
 
+    backend = context.socket(zmq.REQ)
+    backend.connect('inproc://backend')
+
     print('FMW: ready')
     while True:
         msg = puller.recv_json()
@@ -215,20 +208,27 @@ def file_manifest_write_stage(context):
             print('FMW: exit')
             break
         if msg['cmd'] == 'create_file':
-            # TODO: do backend access here
             id = uuid4().hex
-            file_manifests[id] = {'blocks': []}
-            msg['umw'] = {'id': id, 'path': msg['msg']['path']}
-            pusher_to_umw.send_json(msg)
+            backend.send_json({'cmd': 'file_manifest_write', 'id': id, 'content': {'blocks': []}})
+            resp = backend.recv_json()
+            if resp['status'] != 'ok':
+                msg['resp'] = resp
+                pusher_to_reply.send_json(msg)
+            else:
+                msg['umw'] = {'id': id, 'path': msg['msg']['path']}
+                pusher_to_umw.send_json(msg)
         elif msg['cmd'] == 'write_file':
-            if msg['fmw']['id'] not in file_manifests:
+            backend.send_json({
+                'cmd': 'file_manifest_write', 'id': msg['fmw']['id'],
+                'content': {'blocks': msg['fmw']['blocks']}})
+            resp = backend.recv_json()
+            if resp['status'] != 'ok':
                 print('Unknown file manifest %s' % msg['fmw']['id'])
                 msg['resp'] = {'status': 'unknown_file_manifest'}
                 pusher_to_reply.send_json(msg)
-            # TODO: do backend access here
-            file_manifests[msg['fmw']['id']]['blocks'] = msg['fmw']['blocks']
-            msg['resp'] = {'status': 'ok'}
-            pusher_to_reply.send_json(msg)
+            else:
+                msg['resp'] = {'status': 'ok'}
+                pusher_to_reply.send_json(msg)
 
 
 def block_read_stage(context):
@@ -238,6 +238,9 @@ def block_read_stage(context):
     pusher_to_reply.connect('inproc://reply')
     pusher_to_bw = context.socket(zmq.PUSH)
     pusher_to_bw.connect('inproc://bw')
+
+    backend = context.socket(zmq.REQ)
+    backend.connect('inproc://backend')
 
     print('BR: ready')
     while True:
@@ -249,13 +252,14 @@ def block_read_stage(context):
             break
         content = []
         for block in msg['br']['blocks']:
-            # TODO: do block I/O access here
-            if block['id'] not in blocks:
+            backend.send_json({'cmd': 'block_read', 'id': block['id']})
+            resp = backend.recv_json()
+            if resp['status'] != 'ok':
                 print('Unknown block id `%s`' % block['id'])
                 msg['resp'] = {'status': 'unknown_block'}
                 pusher_to_reply.send_json(msg)
             else:
-                content.append(blocks[block['id']])
+                content.append(resp['content'])
         if msg['cmd'] == 'read_file':
             msg['resp'] = {'status': 'ok', 'content': ''.join(content)}
             pusher_to_reply.send_json(msg)
@@ -269,6 +273,9 @@ def block_write_stage(context):
     puller.bind('inproc://bw')
     pusher_to_fmw = context.socket(zmq.PUSH)
     pusher_to_fmw.connect('inproc://fmw')
+
+    backend = context.socket(zmq.REQ)
+    backend.connect('inproc://backend')
 
     print('BW: ready')
     while True:
@@ -286,7 +293,9 @@ def block_write_stage(context):
         while remaincontent:
             blkcontent, remaincontent = remaincontent[:blksize], remaincontent[blksize:]
             blkid = uuid4().hex
-            blocks[blkid] = blkcontent
+            backend.send_json({'cmd': 'block_write', 'id': blkid, 'content': blkcontent})
+            resp = backend.recv_json()
+            assert resp['status'] == 'ok'
             file_blocks.append({'id': blkid})
         msg['fmw'] = {'blocks': file_blocks, "id": msg['fmr']['id']}
         pusher_to_fmw.send_json(msg)
@@ -313,25 +322,25 @@ class Pipeline:
     def __init__(self, context):
         def bootstrap(func):
 
-            def start():
+            def start(*args):
                 print('started %s' % func.__name__)
-                ret = func(context)
+                ret = func(context, *args)
                 print('stopped %s' % func.__name__)
                 return ret
 
             return start
 
-        self._stage_br = Thread(target=bootstrap(block_read_stage), daemon=False)
-        self._stage_bw = Thread(target=bootstrap(block_write_stage), daemon=False)
+        self._stage_br = Thread(target=bootstrap(block_read_stage))
+        self._stage_bw = Thread(target=bootstrap(block_write_stage))
 
-        self._stage_fmr = Thread(target=bootstrap(file_manifest_read_stage), daemon=False)
-        self._stage_fmw = Thread(target=bootstrap(file_manifest_write_stage), daemon=False)
+        self._stage_fmr = Thread(target=bootstrap(file_manifest_read_stage))
+        self._stage_fmw = Thread(target=bootstrap(file_manifest_write_stage))
 
-        self._stage_umr = Thread(target=bootstrap(user_manifest_read_stage), daemon=False)
-        self._stage_umw = Thread(target=bootstrap(user_manifest_write_stage), daemon=False)
+        self._stage_umr = Thread(target=bootstrap(user_manifest_read_stage))
+        self._stage_umw = Thread(target=bootstrap(user_manifest_write_stage))
 
-        self._stage_init = Thread(target=bootstrap(init_stage), daemon=False)
-        self._stage_reply = Thread(target=bootstrap(reply_stage), daemon=False)
+        self._stage_init = Thread(target=bootstrap(init_stage))
+        self._stage_reply = Thread(target=bootstrap(reply_stage))
 
     def start(self):
         self._stage_br.start()
@@ -357,8 +366,8 @@ class Pipeline:
         self._stage_bw.join()
 
 
-def main(addr):
-    context = zmq.Context()
+def main(addr, backend_addr):
+    context = zmq.Context.instance()
     client = context.socket(zmq.ROUTER)
     client.bind(addr)
 
@@ -367,8 +376,16 @@ def main(addr):
     puller = context.socket(zmq.PULL)
     puller.bind('inproc://finish')
 
+    # Multiplexing backend connection between pipeline stages
+    backend = zmq.devices.ThreadDevice(zmq.QUEUE, zmq.REP, zmq.REQ)
+    backend.bind_in('inproc://backend')
+    backend.connect_out(backend_addr)
+    backend.start()
+    # TODO: check if the backend connection is ready
+
     pipeline = Pipeline(context)
     pipeline.start()
+    # TODO: should make sure the pipeline is ready before going further
 
     graceful_shudown = False
     def _signint_handler(signum, frame):
@@ -386,43 +403,46 @@ def main(addr):
     poll = zmq.Poller()
     poll.register(client, zmq.POLLIN)
     poll.register(puller, zmq.POLLIN)
-    while True:
-        for sock, _ in poll.poll():
-            if sock is client:
-                # Get command from client and push it into the pipeline
-                id, _, raw_msg = client.recv_multipart()
-                msg = json.loads(raw_msg.decode())
-                msg['__client_id__'] = base64.encodebytes(id).decode()
-                print('[%s] Received %s' % (id, msg))
-                if graceful_shudown:
-                    # Pipeline is closing, so we're no longer processing requests
-                    resp = {'status': 'shutting_down'}
+    try:
+        while True:
+            for sock, _ in poll.poll():
+                if sock is client:
+                    # Get command from client and push it into the pipeline
+                    id, _, raw_msg = client.recv_multipart()
+                    msg = json.loads(raw_msg.decode())
+                    msg['__client_id__'] = base64.encodebytes(id).decode()
+                    print('[%s] Received %s' % (id, msg))
+                    if graceful_shudown:
+                        # Pipeline is closing, so we're no longer processing requests
+                        resp = {'status': 'shutting_down'}
+                        client.send_multipart([id, b'', json.dumps(resp).encode()])
+                    if msg['cmd'] == 'info':
+                        resp = {
+                            'user_manifest': user_manifest,
+                            'file_manifests': file_manifests,
+                            'blocks': blocks
+                        }
+                        client.send_multipart([id, b'', json.dumps(resp).encode()])
+                    else:
+                        pusher.send_json(msg)
+                elif sock is puller:
+                    # Command response is available, send it back from client
+                    resp = puller.recv_json()
+                    if '__system_exit__' in resp:
+                        # All pipeline stages are down, we can leave
+                        print('bye ;-)')
+                        return
+                    id = base64.decodebytes(resp.pop('__client_id__').encode())
+                    print('[%s] Done => %s' % (id, resp))
                     client.send_multipart([id, b'', json.dumps(resp).encode()])
-                if msg['cmd'] == 'info':
-                    resp = {
-                        'user_manifest': user_manifest,
-                        'file_manifests': file_manifests,
-                        'blocks': blocks
-                    }
-                    client.send_multipart([id, b'', json.dumps(resp).encode()])
-                else:
-                    pusher.send_json(msg)
-            elif sock is puller:
-                # Command response is available, send it back from client
-                resp = puller.recv_json()
-                if '__system_exit__' in resp:
-                    # All pipeline stages are down, we can leave
-                    print('bye ;-)')
-                    pipeline.wait_stop()
-                    return
-                id = base64.decodebytes(resp.pop('__client_id__').encode())
-                print('[%s] Done => %s' % (id, resp))
-                client.send_multipart([id, b'', json.dumps(resp).encode()])
+    finally:
+        pipeline.wait_stop()
+        # backend is started in daemon mode, will stop by itself
 
 
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) != 2:
-        print("usage: core.py <address>")
+    if len(sys.argv) != 3:
+        print("usage: core.py <address> <backend-address>")
         raise SystemExit(1)
-    main(sys.argv[1])
+    main(*sys.argv[1:])
