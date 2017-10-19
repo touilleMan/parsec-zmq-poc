@@ -4,6 +4,17 @@ from time import sleep
 from uuid import uuid4
 
 
+# +---------------------------------------------------------+
+# | command     | user manifest  | files manifests | blocks |
+# +---------------------------------------------------------+
+# | stat        |       R        |                 |        |
+# | read_file   |       R        |        R        |   R    |
+# | write_file  |       R        |       R/W       |  R/W   |
+# | create_file |      R/W       |        W        |        |
+# | delete      |      R/W       |                 |        |
+# +---------------------------------------------------------+
+
+
 # Dummy data
 
 
@@ -267,40 +278,6 @@ def reply_stage():
     while True:
         msg = puller.recv_json()
         pusher_to_finish.send_json(msg['resp'])
-
-
-# R on user manifest
-def stat(msg):
-    pass
-
-
-# R on user manifest + file manifest + blocks
-def read_file(msg):
-    pass
-
-
-# R on user manifest, R/W on file manifest + blocks
-def write_file(msg):
-    pass
-
-
-# R/W on user manifest, W on file manifest + blocks
-def create_file(msg):
-    pass
-
-
-# R/W on user manifest
-def delete(msg):
-    pass
-
-
-CMDS = {
-    'stat': stat,
-    'read_file': read_file,
-    'write_file': write_file,
-    'create_file': create_file,
-    'delete': delete,
-}
 
 
 class Pipeline:
