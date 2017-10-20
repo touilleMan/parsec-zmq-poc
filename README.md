@@ -1,5 +1,5 @@
 Zmq POC
-~~~~~~~
+-------
 
 start in separate shells:
 
