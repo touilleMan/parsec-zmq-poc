@@ -1,12 +1,22 @@
 import attr
 import trio
 
+from .config import CONFIG
 from .utils import CookedSocket
 
 
 class CoreApp:
-    def __init__(self):
+
+    def __init__(self, config=None):
+        self.config = CONFIG.copy()
+        if config:
+            self.config.update(config)
         self.server_ready = trio.Event()
+        self.host = self.config['HOST']
+        self.port = self.config['PORT']
+        self.auth_user = None
+        self.auth_key = None
+        self.fs = None
 
     async def _serve_client(self, client_sock):
         sock = CookedSocket(client_sock)
@@ -18,24 +28,27 @@ class CoreApp:
             rep = await cmd_func(req)
             await sock.send(rep)
 
-    async def _wait_clients(self, nursery, host, port):
+    async def _wait_clients(self, nursery):
         with trio.socket.socket() as listen_sock:
-            listen_sock.bind((host, port))
+            listen_sock.bind((self.host, self.port))
             listen_sock.listen()
             self.server_ready.set()
             while True:
                 server_sock, _ = await listen_sock.accept()
                 nursery.start_soon(self._serve_client, server_sock)
 
-    async def run(self, host="127.0.0.1", port=9999):
+    async def run(self):
         async with trio.open_nursery() as nursery:
-            nursery.start_soon(self._wait_clients, nursery, host, port)
+            nursery.start_soon(self._wait_clients, nursery)
 
     async def _cmd_REGISTER(self, req):
         return {'status': 'not_implemented'}
 
     async def _cmd_LOGIN(self, req):
-        pass
+        if self.auth_user:
+            return {'status': 'already_logged'}
+        else:
+            return {'status': 'ok'}
 
     async def _cmd_GET_AVAILABLE_LOGINS(self, req):
         pass
@@ -44,32 +57,49 @@ class CoreApp:
         return {'status': 'ok'}
 
     async def _cmd_LOGOUT(self, req):
-        pass
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return {'status': 'ok'}
 
     async def _cmd_FILE_CREATE(self, req):
-        self.connected
-        pass
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return {'status': 'ok'}
 
     async def _cmd_FILE_READ(self, req):
-        pass
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return {'status': 'ok'}
 
     async def _cmd_FILE_WRITE(self, req):
-        pass
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return {'status': 'ok'}
 
     async def _cmd_STAT(self, req):
-        pass
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return {'status': 'ok'}
 
     async def _cmd_FOLDER_CREATE(self, req):
-        pass
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return {'status': 'ok'}
 
     async def _cmd_MOVE(self, req):
-        pass
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return {'status': 'ok'}
 
     async def _cmd_DELETE(self, req):
-        pass
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return {'status': 'ok'}
 
     async def _cmd_FILE_TRUNCATE(self, req):
-        pass
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return {'status': 'ok'}
 
 
 def main():
