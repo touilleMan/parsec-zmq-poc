@@ -2,6 +2,7 @@ import pytest
 import trio
 from trio.testing import trio_test
 import socket
+from unittest.mock import patch
 
 from foobar.main import CoreApp
 from foobar.utils import CookedSocket
@@ -51,16 +52,37 @@ async def test_connection(core):
 @trio_test
 @with_core()
 async def test_login_and_logout(core):
-    with trio.socket.socket() as sock:
-        await sock.connect((core.host, core.port))
-        sock = CookedSocket(sock)
-        await sock.send({'cmd': 'login', 'id': 'john@test.com', 'password': '<secret>'})
-        rep = await sock.recv()
-        assert rep == {'status': 'ok'}
+    with patch('foobar.main.CoreApp._get_user') as get_user_mock:
+        get_user_mock.return_value = ('a', 'b')
+        with trio.socket.socket() as sock:
+            await sock.connect((core.host, core.port))
+            sock = CookedSocket(sock)
+            await sock.send({'cmd': 'identity_info'})
+            rep = await sock.recv()
+            assert rep == {'status': 'ok', 'loaded': False, 'id': None}
+            # Do the login
+            await sock.send({'cmd': 'identity_login', 'id': 'john@test.com', 'password': '<secret>'})
+            rep = await sock.recv()
+            assert rep == {'status': 'ok'}
 
-        await sock.send({'cmd': 'get_core_state'})
-        rep = await sock.recv()
-        assert rep == {'status': 'ok'}
+            await sock.send({'cmd': 'identity_info'})
+            rep = await sock.recv()
+            assert rep == {'status': 'ok', 'loaded': True, 'id': 'john@test.com'}
+
+        # Changing socket should not trigger logout
+        with trio.socket.socket() as sock:
+            await sock.connect((core.host, core.port))
+            sock = CookedSocket(sock)
+            await sock.send({'cmd': 'identity_info'})
+            rep = await sock.recv()
+            assert rep == {'status': 'ok', 'loaded': True, 'id': 'john@test.com'}
+            # Actual logout
+            await sock.send({'cmd': 'identity_logout'})
+            rep = await sock.recv()
+            assert rep == {'status': 'ok'}
+            await sock.send({'cmd': 'identity_info'})
+            rep = await sock.recv()
+            assert rep == {'status': 'ok', 'loaded': False, 'id': None}
 
 
 @trio_test
@@ -70,7 +92,7 @@ async def test_need_login_cmds(core):
         await sock.connect((core.host, core.port))
         sock = CookedSocket(sock)
         for cmd in [
-                'logout',
+                'identity_logout',
                 'file_create',
                 'file_read',
                 'file_write',

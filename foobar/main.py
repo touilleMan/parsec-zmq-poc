@@ -1,8 +1,14 @@
 import attr
 import trio
+from marshmallow import fields
 
 from .config import CONFIG
-from .utils import CookedSocket
+from .utils import CookedSocket, BaseCmdSchema, ParsecMessageError
+
+
+class cmd_LOGIN_Schema(BaseCmdSchema):
+    id = fields.String(required=True)
+    password = fields.String(missing=None)
 
 
 class CoreApp:
@@ -18,6 +24,9 @@ class CoreApp:
         self.auth_key = None
         self.fs = None
 
+    def _get_user(self, userid, password):
+        return None
+
     async def _serve_client(self, client_sock):
         sock = CookedSocket(client_sock)
         while True:
@@ -25,7 +34,10 @@ class CoreApp:
             if not req:  # Client disconnected
                 return
             cmd_func = getattr(self, '_cmd_%s' % req['cmd'].upper())
-            rep = await cmd_func(req)
+            try:
+                rep = await cmd_func(req)
+            except ParsecMessageError as err:
+                rep = err.to_dict()
             await sock.send(rep)
 
     async def _wait_clients(self, nursery):
@@ -44,11 +56,19 @@ class CoreApp:
     async def _cmd_REGISTER(self, req):
         return {'status': 'not_implemented'}
 
-    async def _cmd_LOGIN(self, req):
+    async def _cmd_IDENTITY_LOGIN(self, req):
         if self.auth_user:
             return {'status': 'already_logged'}
-        else:
-            return {'status': 'ok'}
+        msg = cmd_LOGIN_Schema().load(req)
+        userkeys = self._get_user(msg['id'], msg['password'])
+        if not userkeys:
+            return {'status': 'unknown_user'}
+        self.auth_user = msg['id']
+        self.auth_key = userkeys
+        return {'status': 'ok'}
+
+    async def _cmd_IDENTITY_INFO(self, req):
+        return {'status': 'ok', 'loaded': bool(self.auth_user), 'id': self.auth_user}
 
     async def _cmd_GET_AVAILABLE_LOGINS(self, req):
         pass
@@ -56,9 +76,10 @@ class CoreApp:
     async def _cmd_GET_CORE_STATE(self, req):
         return {'status': 'ok'}
 
-    async def _cmd_LOGOUT(self, req):
+    async def _cmd_IDENTITY_LOGOUT(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
+        self.auth_user = self.auth_key = None
         return {'status': 'ok'}
 
     async def _cmd_FILE_CREATE(self, req):

@@ -93,3 +93,20 @@ def ejson_dumps(obj):
 
 def ejson_loads(raw):
     return json.loads(raw)
+
+
+class ParsecMessageError(Exception):
+
+    def __init__(self, status, label=None):
+        self.status = status
+        self.label = label
+
+    def to_dict(self):
+        if self.label:
+            return {'status': self.status, 'label': self.label}
+        else:
+            return {'status': self.status}
+
+
+def abort(status, label):
+    raise ParsecError(status, label)
