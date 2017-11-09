@@ -2,77 +2,79 @@ import json
 from marshmallow import fields, validate
 from nacl.public import Box
 
-from .utils import UnknownCheckedSchema
+from .utils import BaseCmdSchema
 
 
-class PathOnlySchema(UnknownCheckedSchema):
+class InvalidPath(Exception):
+    pass
+
+
+class PathOnlySchema(BaseCmdSchema):
     path = fields.String(required=True)
 
 
-class cmd_CREATE_GROUP_MANIFEST_Schema(UnknownCheckedSchema):
+class cmd_CREATE_GROUP_MANIFEST_Schema(BaseCmdSchema):
     group = fields.String()
 
 
-class cmd_SHOW_dustbin_Schema(UnknownCheckedSchema):
+class cmd_SHOW_dustbin_Schema(BaseCmdSchema):
     path = fields.String(missing=None)
 
 
-class cmd_HISTORY_Schema(UnknownCheckedSchema):
+class cmd_HISTORY_Schema(BaseCmdSchema):
     first_version = fields.Integer(missing=1, validate=lambda n: n >= 1)
     last_version = fields.Integer(missing=None, validate=lambda n: n >= 1)
     summary = fields.Boolean(missing=False)
 
 
-class cmd_RESTORE_MANIFEST_Schema(UnknownCheckedSchema):
+class cmd_RESTORE_MANIFEST_Schema(BaseCmdSchema):
     version = fields.Integer(missing=None, validate=lambda n: n >= 1)
 
 
-class cmd_FILE_READ_Schema(UnknownCheckedSchema):
+class cmd_FILE_READ_Schema(BaseCmdSchema):
     path = fields.String(required=True)
     offset = fields.Int(missing=0, validate=validate.Range(min=0))
     size = fields.Int(missing=None, validate=validate.Range(min=0))
 
 
-class cmd_FILE_WRITE_Schema(UnknownCheckedSchema):
+class cmd_FILE_WRITE_Schema(BaseCmdSchema):
     path = fields.String(required=True)
     offset = fields.Int(missing=0, validate=validate.Range(min=0))
     content = fields.Base64Bytes(required=True)
 
 
-class cmd_FILE_TRUNCATE_Schema(UnknownCheckedSchema):
+class cmd_FILE_TRUNCATE_Schema(BaseCmdSchema):
     path = fields.String(required=True)
     length = fields.Int(required=True, validate=validate.Range(min=0))
 
 
-class cmd_FILE_HISTORY_Schema(UnknownCheckedSchema):
+class cmd_FILE_HISTORY_Schema(BaseCmdSchema):
     path = fields.String(required=True)
     first_version = fields.Int(missing=1, validate=validate.Range(min=1))
     last_version = fields.Int(missing=None, validate=validate.Range(min=1))
 
 
-class cmd_FILE_RESTORE_Schema(UnknownCheckedSchema):
+class cmd_FILE_RESTORE_Schema(BaseCmdSchema):
     path = fields.String(required=True)
     version = fields.Int(required=True, validate=validate.Range(min=1))
 
 
-class cmd_MOVE_Schema(UnknownCheckedSchema):
+class cmd_MOVE_Schema(BaseCmdSchema):
     src = fields.String(required=True)
     dst = fields.String(required=True)
 
 
-class cmd_UNDELETE_Schema(UnknownCheckedSchema):
+class cmd_UNDELETE_Schema(BaseCmdSchema):
     vlob = fields.String(required=True)
 
 
 class FSPipeline:
-    def __init__(self, config, auth_user, auth_key):
-        self.config = config
-        self.auth_user = auth_user
-        self.auth_key = auth_key
-        self.local_storage = LocalStorage(self)
-        self.backend_conn = BackendConnection(self)
-        self.user_manifest_svc = UserManifestService(self)
-        self.file_svc = FilService(self)
+    def __init__(self, app):
+        self.app = app
+        self.local_storage = LocalStorage(app)
+        self.backend_conn = BackendConnection(app)
+        self.user_manifest_svc = UserManifestService(app)
+        self.file_svc = FilService(app)
 
     async def init(self):
         await self.backend_conn.init()
@@ -100,7 +102,14 @@ class FSPipeline:
 
     async def _cmd_STAT(self, req):
         req = PathOnlySchema().load(req)
-        return {'status': 'ok'}
+        path = req['path']
+        self.user_manifest_svc.check_path(path, should_exists=True)
+        obj = self.user_manifest_svc.retrieve_path(path)
+        if obj['type'] == 'folder':
+            return {'status': 'ok', 'type': obj['type'], 'children': list(sorted(obj['children'].keys()))}
+        else:
+            # return await self._stat_file(obj)
+            return {'status': 'not_implemented'}
 
     async def _cmd_FOLDER_CREATE(self, req):
         req = PathOnlySchema().load(req)
@@ -156,15 +165,55 @@ class UserManifestService:
         self.user_manifest = {}
 
     async def init(self):
-        raw_user_manifest = await self.app.local_storage.get_user_manifest()
+        raw_user_manifest = await self.app.fs.local_storage.get_user_manifest(self.app.auth_user)
         if raw_user_manifest is not None:
-            box = Box(self.app.user_privkey, self.app.user_privkey.public_key)
+            box = Box(self.app.auth_privkey, self.app.auth_privkey.public_key)
             user_manifest = json.loads(box.decrypt(raw_user_manifest))
             self.user_manifest_version = user_manifest['version']
             self.user_manifest = user_manifest['root']
 
     async def teardown(self):
         pass
+
+    def check_path(self, path, should_exists=True, type=None):
+        if path == '/':
+            if not should_exists or type not in ('folder', None):
+                raise InvalidPath('Root `/` folder always exists')
+            else:
+                return
+        dirpath, leafname = path.rsplit('/', 1)
+        obj = self.retrieve_path(dirpath)
+        if obj['type'] != 'folder':
+            raise InvalidPath("Path `%s` is not a folder" % path)
+        try:
+            leafobj = obj['children'][leafname]
+            if not should_exists:
+                raise InvalidPath("Path `%s` already exist" % path)
+            if type is not None and leafobj['type'] != type:
+                raise InvalidPath("Path `%s` is not a %s" % (path, type))
+        except KeyError:
+            if should_exists:
+                raise InvalidPath("Path `%s` doesn't exist" % path)
+
+    def retrieve_path(self, path):
+        if not path:
+            return self.user_manifest
+        if not path.startswith('/'):
+            raise InvalidPath("Path must start with `/`")
+        cur_dir = self.user_manifest
+        reps = path.split('/')
+        for rep in reps:
+            # TODO: drop support for . and .. ?
+            if not rep or rep == '.':
+                continue
+            elif rep == '..':
+                cur_dir = cur_dir['parent']
+            else:
+                try:
+                    cur_dir = cur_dir['children'][rep]
+                except KeyError:
+                    raise InvalidPath("Path `%s` doesn't exist" % path)
+        return cur_dir
 
 
 class FilService:

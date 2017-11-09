@@ -58,7 +58,7 @@ class CoreApp:
     async def login(self, userid, rawprivkey):
         self.auth_user = userid
         self.auth_privkey = PrivateKey(rawprivkey)
-        self.fs = FSPipeline(self.config, self.auth_user, self.auth_privkey)
+        self.fs = FSPipeline(self)
         await self.fs.init()
 
     async def logout(self):
@@ -101,37 +101,37 @@ class CoreApp:
     async def _cmd_FILE_READ(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return self.fs._cmd_FILE_READ(req)
+        return await self.fs._cmd_FILE_READ(req)
 
     async def _cmd_FILE_WRITE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return self.fs._cmd_FILE_WRITE(req)
+        return await self.fs._cmd_FILE_WRITE(req)
 
     async def _cmd_STAT(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return self.fs._cmd_STAT(req)
+        return await self.fs._cmd_STAT(req)
 
     async def _cmd_FOLDER_CREATE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return self.fs._cmd_FOLDER_CREATE(req)
+        return await self.fs._cmd_FOLDER_CREATE(req)
 
     async def _cmd_MOVE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return self.fs._cmd_MOVE(req)
+        return await self.fs._cmd_MOVE(req)
 
     async def _cmd_DELETE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return self.fs._cmd_DELETE(req)
+        return await self.fs._cmd_DELETE(req)
 
     async def _cmd_FILE_TRUNCATE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return self.fs._cmd_FILE_TRUNCATE(req)
+        return await self.fs._cmd_FILE_TRUNCATE(req)
 
 
 def main():

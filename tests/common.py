@@ -58,40 +58,46 @@ class ConnectToCore:
         self.sock.close()
 
 
-# LocalStorage should store on disk, but faster and easier to do that
-# in memory during tests
-class MockedLocalStorage:
-    def __init__(self, app):
-        self.app = app
-        self.blocks = {}
-        self.file_manifests = defaultdict(dict)
-        self.user_manifest = {}
+def mocked_local_storage_factory():
+    # LocalStorage should store on disk, but faster and easier to do that
+    # in memory during tests
+    class MockedLocalStorage:
+        # Can be changed before initialization (that's why we use a factory btw)
+        blocks = {}
+        file_manifests = defaultdict(dict)
+        user_manifests = defaultdict(dict)
 
-    async def init(self):
-        pass
+        def __init__(self, app):
+            self.app = app
 
-    async def teardown(self):
-        pass
+        async def init(self):
+            pass
 
-    async def get_block(self, id):
-        return self.blocks.get(id)
+        async def teardown(self):
+            pass
 
-    async def get_file_manifest(self, id, version=None):
-        fm = self.file_manifests.get(id)
-        if not fm:
-            return None
-        if version is not None:
-            return fm.get(version)
-        else:
-            return fm[sorted(fm)[-1]]
+        async def get_block(self, id):
+            return self.blocks.get(id)
 
-    async def get_user_manifest(self, version=None):
-        if not self.user_manifest:
-            return None
-        if version is not None:
-            return self.user_manifest.get(version)
-        else:
-            return self.user_manifest[sorted(self.user_manifest)[-1]]
+        async def get_file_manifest(self, id, version=None):
+            fm = self.file_manifests.get(id)
+            if not fm:
+                return None
+            if version is not None:
+                return fm.get(version)
+            else:
+                return fm[sorted(fm)[-1]]
+
+        async def get_user_manifest(self, userid, version=None):
+            um = self.user_manifests.get(userid)
+            if not um:
+                return None
+            if version is not None:
+                return um.get(version)
+            else:
+                return um[sorted(um)[-1]]
+
+    return MockedLocalStorage
 
 
 def with_core(config=None, mocked_local_storage=True):
@@ -104,7 +110,9 @@ def with_core(config=None, mocked_local_storage=True):
 
             async def run_test_and_cancel_scope(nursery):
                 if mocked_local_storage:
-                    with patch('foobar.fs.LocalStorage', MockedLocalStorage):
+                    mocked_local_storage_cls = mocked_local_storage_factory()
+                    app.mocked_local_storage_cls = mocked_local_storage_cls
+                    with patch('foobar.fs.LocalStorage', mocked_local_storage_cls):
                         await testfunc(app, *args, **kwargs)
                 else:
                     await testfunc(app, *args, **kwargs)
