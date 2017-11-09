@@ -1,8 +1,10 @@
+import attr
 import json
 from marshmallow import fields, validate
 from nacl.public import Box
+from nacl.secret import SecretBox
 
-from .utils import BaseCmdSchema
+from .utils import BaseCmdSchema, from_jsonb64, abort
 
 
 class InvalidPath(Exception):
@@ -108,8 +110,19 @@ class FSPipeline:
         if obj['type'] == 'folder':
             return {'status': 'ok', 'type': obj['type'], 'children': list(sorted(obj['children'].keys()))}
         else:
-            # return await self._stat_file(obj)
-            return {'status': 'not_implemented'}
+            key = from_jsonb64(obj['key'])
+            file = await self.file_svc.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
+            if not file:
+                # Data not in local and backend is offline
+                abort('unavailable_resource')
+            return {
+                'status': 'ok',
+                'type': 'file',
+                'created': file.file_manifest['created'],
+                'updated': file.file_manifest['updated'],
+                'version': file.file_manifest['version'],
+                'size': file.file_manifest['size'],
+            }
 
     async def _cmd_FOLDER_CREATE(self, req):
         req = PathOnlySchema().load(req)
@@ -128,7 +141,7 @@ class FSPipeline:
         return {'status': 'ok'}
 
     async def _cmd_SYNCHRONISE(self, req):
-        UnknownCheckedSchema().load(req)
+        BaseCmdSchema().load(req)
         return {'status': 'not_implemented'}
 
 
@@ -141,6 +154,15 @@ class LocalStorage:
 
     async def teardown(self):
         pass
+
+    async def get_block(self, id):
+        raise NotImplementedError()
+
+    async def get_file_manifest(self, id, rts, wts, version=None):
+        raise NotImplementedError()
+
+    async def get_user_manifest(self, userid, version=None):
+        raise NotImplementedError()
 
 
 class BackendConnection:
@@ -216,12 +238,34 @@ class UserManifestService:
         return cur_dir
 
 
+@attr.s(slots=True)
+class File:
+    id = attr.ib()
+    rts = attr.ib()
+    wts = attr.ib()
+    key = attr.ib()
+    file_manifest = attr.ib()
+    patches = attr.ib(default=attr.Factory(list))
+
+
 class FilService:
     def __init__(self, app):
         self.app = app
+        self.files = {}
 
     async def init(self):
         pass
 
     async def teardown(self):
         pass
+
+    async def get_file(self, id, rts, wts, key):
+        file = self.files.get(id)
+        if not file:
+            raw_fm = await self.app.fs.local_storage.get_file_manifest(id, rts, wts)
+            if raw_fm is None:
+                return None
+            box = SecretBox(key)
+            fm = json.loads(box.decrypt(raw_fm))
+            file = self.files[id] = File(id, rts, wts, key, fm)
+        return file

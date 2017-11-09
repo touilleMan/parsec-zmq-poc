@@ -79,7 +79,7 @@ def mocked_local_storage_factory():
         async def get_block(self, id):
             return self.blocks.get(id)
 
-        async def get_file_manifest(self, id, version=None):
+        async def get_file_manifest(self, id, rts, wts, version=None):
             fm = self.file_manifests.get(id)
             if not fm:
                 return None
