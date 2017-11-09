@@ -66,11 +66,14 @@ class UnknownCheckedSchema(Schema):
             if key not in self.fields or self.fields[key].dump_only:
                 raise ValidationError('Unknown field name {}'.format(key))
 
-    def load(self, msg):
+    def load(self, msg, abort_on_error=True):
         parsed_msg, errors = super().load(msg)
+        if not abort_on_error:
+            return parsed_msg, errors
         if errors:
-            raise exceptions.BadMessageError(errors)
-        return parsed_msg
+            raise ParsecMessageError(errors=errors)
+        else:
+            return parsed_msg
 
 
 class BaseCmdSchema(UnknownCheckedSchema):
@@ -97,16 +100,13 @@ def ejson_loads(raw):
 
 class ParsecMessageError(Exception):
 
-    def __init__(self, status, label=None):
+    def __init__(self, status='bad_message', **kwargs):
         self.status = status
-        self.label = label
+        self.kwargs = kwargs
 
     def to_dict(self):
-        if self.label:
-            return {'status': self.status, 'label': self.label}
-        else:
-            return {'status': self.status}
+        return {'status': self.status, **self.kwargs}
 
 
-def abort(status, label):
-    raise ParsecError(status, label)
+def abort(status, **kwargs):
+    raise ParsecMessageError(status, **kwargs)

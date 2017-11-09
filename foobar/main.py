@@ -1,9 +1,11 @@
 import attr
 import trio
 from marshmallow import fields
+from nacl.public import PrivateKey
 
 from .config import CONFIG
 from .utils import CookedSocket, BaseCmdSchema, ParsecMessageError
+from .fs import FSPipeline
 
 
 class cmd_LOGIN_Schema(BaseCmdSchema):
@@ -21,7 +23,7 @@ class CoreApp:
         self.host = self.config['HOST']
         self.port = self.config['PORT']
         self.auth_user = None
-        self.auth_key = None
+        self.auth_privkey = None
         self.fs = None
 
     def _get_user(self, userid, password):
@@ -53,6 +55,16 @@ class CoreApp:
         async with trio.open_nursery() as nursery:
             nursery.start_soon(self._wait_clients, nursery)
 
+    async def login(self, userid, rawprivkey):
+        self.auth_user = userid
+        self.auth_privkey = PrivateKey(rawprivkey)
+        self.fs = FSPipeline(self.config, self.auth_user, self.auth_privkey)
+        await self.fs.init()
+
+    async def logout(self):
+        await self.fs.teardown()
+        self.auth_user = self.auth_privkey = None
+
     async def _cmd_REGISTER(self, req):
         return {'status': 'not_implemented'}
 
@@ -63,8 +75,13 @@ class CoreApp:
         userkeys = self._get_user(msg['id'], msg['password'])
         if not userkeys:
             return {'status': 'unknown_user'}
-        self.auth_user = msg['id']
-        self.auth_key = userkeys
+        await self.login(msg['id'], userkeys)
+        return {'status': 'ok'}
+
+    async def _cmd_IDENTITY_LOGOUT(self, req):
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        await self.logout()
         return {'status': 'ok'}
 
     async def _cmd_IDENTITY_INFO(self, req):
@@ -76,12 +93,6 @@ class CoreApp:
     async def _cmd_GET_CORE_STATE(self, req):
         return {'status': 'ok'}
 
-    async def _cmd_IDENTITY_LOGOUT(self, req):
-        if not self.auth_user:
-            return {'status': 'login_required'}
-        self.auth_user = self.auth_key = None
-        return {'status': 'ok'}
-
     async def _cmd_FILE_CREATE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
@@ -90,37 +101,37 @@ class CoreApp:
     async def _cmd_FILE_READ(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return {'status': 'ok'}
+        return self.fs._cmd_FILE_READ(req)
 
     async def _cmd_FILE_WRITE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return {'status': 'ok'}
+        return self.fs._cmd_FILE_WRITE(req)
 
     async def _cmd_STAT(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return {'status': 'ok'}
+        return self.fs._cmd_STAT(req)
 
     async def _cmd_FOLDER_CREATE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return {'status': 'ok'}
+        return self.fs._cmd_FOLDER_CREATE(req)
 
     async def _cmd_MOVE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return {'status': 'ok'}
+        return self.fs._cmd_MOVE(req)
 
     async def _cmd_DELETE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return {'status': 'ok'}
+        return self.fs._cmd_DELETE(req)
 
     async def _cmd_FILE_TRUNCATE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return {'status': 'ok'}
+        return self.fs._cmd_FILE_TRUNCATE(req)
 
 
 def main():
