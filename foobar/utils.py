@@ -4,7 +4,7 @@ import base64
 import json
 from functools import partial
 from marshmallow import Schema, fields, validates_schema, ValidationError
-from arrow import Arrow
+from pendulum import Pendulum
 
 
 BUFFSIZE = 4049
@@ -82,7 +82,7 @@ class BaseCmdSchema(UnknownCheckedSchema):
 
 def _json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
-    if isinstance(obj, Arrow):
+    if isinstance(obj, Pendulum):
         serial = obj.isoformat()
         return serial
     elif isinstance(obj, bytes):
