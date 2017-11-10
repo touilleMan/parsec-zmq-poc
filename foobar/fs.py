@@ -190,7 +190,7 @@ class UserManifestService:
         raw_user_manifest = await self.app.fs.local_storage.get_user_manifest(self.app.auth_user)
         if raw_user_manifest is not None:
             box = Box(self.app.auth_privkey, self.app.auth_privkey.public_key)
-            user_manifest = json.loads(box.decrypt(raw_user_manifest))
+            user_manifest = json.loads(box.decrypt(raw_user_manifest).decode())
             self.user_manifest_version = user_manifest['version']
             self.user_manifest = user_manifest['root']
 
@@ -266,6 +266,6 @@ class FilService:
             if raw_fm is None:
                 return None
             box = SecretBox(key)
-            fm = json.loads(box.decrypt(raw_fm))
+            fm = json.loads(box.decrypt(raw_fm).decode())
             file = self.files[id] = File(id, rts, wts, key, fm)
         return file
