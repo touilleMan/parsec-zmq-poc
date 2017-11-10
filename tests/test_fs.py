@@ -123,3 +123,215 @@ async def test_stat_file(core):
         'updated': '2017-12-02T12:30:45',
         'size': 20
     }
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_create_folder(core):
+    _populate_local_storage_for_alice(core)
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'folder_create', 'path': '/new_folder'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+        # Make sure folder is visible
+        await sock.send({'cmd': 'stat', 'path': '/'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'children': ['new_folder'], 'type': 'folder'}
+    # Test nested as well
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'folder_create', 'path': '/foo/new_folder'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+        # Make sure folder is visible
+        await sock.send({'cmd': 'stat', 'path': '/foo'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'children': ['new_folder', 'spam.txt'], 'type': 'folder'}
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_create_duplicated_folder(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_move_folder(core):
+    _populate_local_storage_for_alice(core)
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'move', 'src': '/foo', 'dst': '/new_foo'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+        # Make sure folder is visible
+        await sock.send({'cmd': 'stat', 'path': '/'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'children': ['new_foo'], 'type': 'folder'}
+        # Make sure folder still contains the same stuff
+        await sock.send({'cmd': 'stat', 'path': '/new_foo'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'children': ['spam.txt'], 'type': 'folder'}
+        # And old folder nam is no longer available
+        await sock.send({'cmd': 'stat', 'path': '/foo'})
+        rep = await sock.recv()
+        assert rep == {'status': 'unknown_path'}
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_move_folder_bad_dst(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_move_file(core):
+    _populate_local_storage_for_alice(core)
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'move', 'src': '/foo/spam.txt', 'dst': '/new_spam.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+        # Check the destination exists
+        await sock.send({'cmd': 'stat', 'path': '/'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'children': ['foo', 'new_spam.txt'], 'type': 'folder'}
+        # Check the source no longer exits
+        await sock.send({'cmd': 'stat', 'path': '/foo'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'children': [], 'type': 'folder'}
+        # Make sure we can no longer stat source name...
+        await sock.send({'cmd': 'stat', 'path': '/foo/spam.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'unknown_path'}
+        # ...and we can stat destination name
+        await sock.send({'cmd': 'stat', 'path': '/new_spam.txt'})
+        rep = await sock.recv()
+        assert rep == {
+            'status': 'ok',
+            'type': 'file',
+            'version': 1,
+            'created': '2017-12-02T12:30:50',
+            'updated': '2017-12-02T12:30:50',
+            'size': 0
+        }
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_move_file_bad_dst(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_move_unknow_file(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_delete_folder(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_delete_file(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_delete_unknow_file(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_read(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_read_with_offset(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_read_bad_file(core):
+    # Try read bad path and folder
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_write(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_write_with_offset(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_write_bad_file(core):
+    # Try write in bad path and folder
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_write_bad_file(core):
+    # Try write in bad path and folder
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_truncate(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_truncate_bad_file(core):
+    # Try truncate in bad path and folder
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_create_file(core):
+    raise NotImplementedError()
+
+
+@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_create_bad_file(core):
+    # Path already exists or within unknown folder
+    raise NotImplementedError()
