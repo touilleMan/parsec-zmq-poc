@@ -4,7 +4,7 @@ from marshmallow import fields
 from nacl.public import PrivateKey
 
 from .config import CONFIG
-from .utils import CookedSocket, BaseCmdSchema, ParsecMessageError
+from .utils import CookedSocket, BaseCmdSchema, ParsecError
 from .fs import FSPipeline
 
 
@@ -38,7 +38,7 @@ class CoreApp:
             cmd_func = getattr(self, '_cmd_%s' % req['cmd'].upper())
             try:
                 rep = await cmd_func(req)
-            except ParsecMessageError as err:
+            except ParsecError as err:
                 rep = err.to_dict()
             await sock.send(rep)
 

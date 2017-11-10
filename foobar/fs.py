@@ -1,14 +1,15 @@
 import attr
 import json
+import pendulum
 from marshmallow import fields, validate
 from nacl.public import Box
 from nacl.secret import SecretBox
 
-from .utils import BaseCmdSchema, from_jsonb64, abort
+from .utils import BaseCmdSchema, from_jsonb64, abort, ParsecError
 
 
-class InvalidPath(Exception):
-    pass
+class InvalidPath(ParsecError):
+    status = 'invalid_path'
 
 
 class PathOnlySchema(BaseCmdSchema):
@@ -126,14 +127,39 @@ class FSPipeline:
 
     async def _cmd_FOLDER_CREATE(self, req):
         req = PathOnlySchema().load(req)
+        path = req['path']
+        self.user_manifest_svc.check_path(path, should_exists=False)
+        dirpath, name = path.rsplit('/', 1)
+        dirobj = self.user_manifest_svc.retrieve_path(dirpath)
+        now = pendulum.now().isoformat()
+        dirobj['children'][name] = {
+            'type': 'folder', 'children': {}, 'stat': {'created': now, 'updated': now}}
         return {'status': 'ok'}
 
     async def _cmd_MOVE(self, req):
         req = cmd_MOVE_Schema().load(req)
+        src = req['src']
+        dst = req['dst']
+
+        self.user_manifest_svc.check_path(src, should_exists=True)
+        self.user_manifest_svc.check_path(dst, should_exists=False)
+
+        srcdirpath, scrfilename = src.rsplit('/', 1)
+        dstdirpath, dstfilename = dst.rsplit('/', 1)
+
+        srcobj = self.user_manifest_svc.retrieve_path(srcdirpath)
+        dstobj = self.user_manifest_svc.retrieve_path(dstdirpath)
+        dstobj['children'][dstfilename] = srcobj['children'][scrfilename]
+        del srcobj['children'][scrfilename]
         return {'status': 'ok'}
 
     async def _cmd_DELETE(self, req):
         req = PathOnlySchema().load(req)
+        path = req['path']
+        self.user_manifest_svc.check_path(path, should_exists=True)
+        dirpath, leafname = path.rsplit('/', 1)
+        obj = self.user_manifest_svc.retrieve_path(dirpath)
+        del obj['children'][leafname]
         return {'status': 'ok'}
 
     async def _cmd_FILE_TRUNCATE(self, req):

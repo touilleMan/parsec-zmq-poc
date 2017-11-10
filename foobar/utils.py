@@ -98,15 +98,20 @@ def ejson_loads(raw):
     return json.loads(raw)
 
 
-class ParsecMessageError(Exception):
+class ParsecError(Exception):
+    status = 'error'
 
-    def __init__(self, status='bad_message', **kwargs):
-        self.status = status
-        self.kwargs = kwargs
+    def __init__(self, reason=None, **kwargs):
+        if reason:
+            self.kwargs = {**kwargs, 'reason': reason}
+        else:
+            self.kwargs = kwargs
 
     def to_dict(self):
         return {'status': self.status, **self.kwargs}
 
 
-def abort(status, **kwargs):
-    raise ParsecMessageError(status, **kwargs)
+def abort(status='bad_message', **kwargs):
+    error = ParsecError(**kwargs)
+    error.status = status
+    raise error

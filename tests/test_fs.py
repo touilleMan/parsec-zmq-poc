@@ -18,6 +18,15 @@ async def test_connection(core):
 
 
 def _populate_local_storage_for_alice(core):
+    """
+    Generated tree:
+    /
+    /bar.txt
+    /foo/
+    /foo/spam.txt
+    /grok/
+    """
+
     aliceid = 'alice@test'
     alice_privkey = PrivateKey(TEST_USERS[aliceid])
 
@@ -71,6 +80,11 @@ def _populate_local_storage_for_alice(core):
                     },
                     'stat': {'created': '2017-12-02T12:30:23', 'updated': '2017-12-02T12:30:23'}
                 },
+                'grok': {
+                    'type': 'folder',
+                    'children': {},
+                    'stat': {'created': '2017-12-02T12:30:55', 'updated': '2017-12-02T12:30:55'}
+                },
                 'bar.txt': {
                     'type': 'file',
                     'id': bar_txt_id,
@@ -101,7 +115,7 @@ async def test_stat_folder(core):
     async with core.test_connect('alice@test') as sock:
         await sock.send({'cmd': 'stat', 'path': '/'})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'children': ['bar.txt', 'foo'], 'type': 'folder'}
+        assert rep == {'status': 'ok', 'children': ['bar.txt', 'foo', 'grok'], 'type': 'folder'}
         # Test nested folder as well
         await sock.send({'cmd': 'stat', 'path': '/foo'})
         rep = await sock.recv()
@@ -125,7 +139,6 @@ async def test_stat_file(core):
     }
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
 async def test_create_folder(core):
@@ -137,7 +150,7 @@ async def test_create_folder(core):
         # Make sure folder is visible
         await sock.send({'cmd': 'stat', 'path': '/'})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'children': ['new_folder'], 'type': 'folder'}
+        assert rep == {'status': 'ok', 'children': ['bar.txt', 'foo', 'grok', 'new_folder'], 'type': 'folder'}
     # Test nested as well
     async with core.test_connect('alice@test') as sock:
         await sock.send({'cmd': 'folder_create', 'path': '/foo/new_folder'})
@@ -149,14 +162,20 @@ async def test_create_folder(core):
         assert rep == {'status': 'ok', 'children': ['new_folder', 'spam.txt'], 'type': 'folder'}
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
 async def test_create_duplicated_folder(core):
-    raise NotImplementedError()
+    _populate_local_storage_for_alice(core)
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'folder_create', 'path': '/foo'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': 'Path `/foo` already exist'}
+        # Try with existing file as well
+        await sock.send({'cmd': 'folder_create', 'path': '/bar.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': 'Path `/bar.txt` already exist'}
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
 async def test_move_folder(core):
@@ -168,7 +187,7 @@ async def test_move_folder(core):
         # Make sure folder is visible
         await sock.send({'cmd': 'stat', 'path': '/'})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'children': ['new_foo'], 'type': 'folder'}
+        assert rep == {'status': 'ok', 'children': ['bar.txt', 'grok', 'new_foo'], 'type': 'folder'}
         # Make sure folder still contains the same stuff
         await sock.send({'cmd': 'stat', 'path': '/new_foo'})
         rep = await sock.recv()
@@ -176,17 +195,33 @@ async def test_move_folder(core):
         # And old folder nam is no longer available
         await sock.send({'cmd': 'stat', 'path': '/foo'})
         rep = await sock.recv()
-        assert rep == {'status': 'unknown_path'}
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/foo` doesn't exist"}
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
 async def test_move_folder_bad_dst(core):
-    raise NotImplementedError()
+    _populate_local_storage_for_alice(core)
+    for src in ['/foo', '/bar.txt']:
+        async with core.test_connect('alice@test') as sock:
+            # Destination already exists
+            await sock.send({'cmd': 'move', 'src': src, 'dst': '/grok'})
+            rep = await sock.recv()
+            assert rep == {'status': 'invalid_path', 'reason': "Path `/grok` already exist"}
+            # Destination already exists
+            await sock.send({'cmd': 'move', 'src': src, 'dst': '/bar.txt'})
+            rep = await sock.recv()
+            assert rep == {'status': 'invalid_path', 'reason': "Path `/bar.txt` already exist"}
+            # Cannot replace root !
+            await sock.send({'cmd': 'move', 'src': src, 'dst': '/'})
+            rep = await sock.recv()
+            assert rep == {'status': 'invalid_path', 'reason': "Root `/` folder always exists"}
+            # Destination contains non-existent folders
+            await sock.send({'cmd': 'move', 'src': src, 'dst': '/grok/unknown/new_foo'})
+            rep = await sock.recv()
+            assert rep == {'status': 'invalid_path', 'reason': "Path `/grok/unknown` doesn't exist"}
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
 async def test_move_file(core):
@@ -198,7 +233,7 @@ async def test_move_file(core):
         # Check the destination exists
         await sock.send({'cmd': 'stat', 'path': '/'})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'children': ['foo', 'new_spam.txt'], 'type': 'folder'}
+        assert rep == {'status': 'ok', 'children': ['bar.txt', 'foo', 'grok', 'new_spam.txt'], 'type': 'folder'}
         # Check the source no longer exits
         await sock.send({'cmd': 'stat', 'path': '/foo'})
         rep = await sock.recv()
@@ -206,7 +241,7 @@ async def test_move_file(core):
         # Make sure we can no longer stat source name...
         await sock.send({'cmd': 'stat', 'path': '/foo/spam.txt'})
         rep = await sock.recv()
-        assert rep == {'status': 'unknown_path'}
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/foo/spam.txt` doesn't exist"}
         # ...and we can stat destination name
         await sock.send({'cmd': 'stat', 'path': '/new_spam.txt'})
         rep = await sock.recv()
@@ -220,39 +255,79 @@ async def test_move_file(core):
         }
 
 
-@pytest.mark.xfail
-@trio_test
-@with_core()
-async def test_move_file_bad_dst(core):
-    raise NotImplementedError()
-
-
-@pytest.mark.xfail
 @trio_test
 @with_core()
 async def test_move_unknow_file(core):
-    raise NotImplementedError()
+    _populate_local_storage_for_alice(core)
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'move', 'src': '/dummy.txt', 'dst': '/new_dummy.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/dummy.txt` doesn't exist"}
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
 async def test_delete_folder(core):
-    raise NotImplementedError()
+    _populate_local_storage_for_alice(core)
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'delete', 'path': '/grok'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+        # Make sure the folder disappeared
+        await sock.send({'cmd': 'stat', 'path': '/'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'children': ['bar.txt', 'foo'], 'type': 'folder'}
+        await sock.send({'cmd': 'stat', 'path': '/grok'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/grok` doesn't exist"}
 
 
-@pytest.mark.xfail
+@trio_test
+@with_core()
+async def test_delete_non_empty_folder(core):
+    _populate_local_storage_for_alice(core)
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'delete', 'path': '/foo'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+        # Make sure the folder disappeared
+        await sock.send({'cmd': 'stat', 'path': '/'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'children': ['bar.txt', 'grok'], 'type': 'folder'}
+        await sock.send({'cmd': 'stat', 'path': '/foo'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/foo` doesn't exist"}
+        # Children should have disappeared as well
+        await sock.send({'cmd': 'stat', 'path': '/foo/spam.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/foo` doesn't exist"}
+
+
 @trio_test
 @with_core()
 async def test_delete_file(core):
-    raise NotImplementedError()
+    _populate_local_storage_for_alice(core)
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'delete', 'path': '/bar.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+        # Make sure the folder disappeared
+        await sock.send({'cmd': 'stat', 'path': '/'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'children': ['foo', 'grok'], 'type': 'folder'}
+        await sock.send({'cmd': 'stat', 'path': '/bar.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/bar.txt` doesn't exist"}
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
 async def test_delete_unknow_file(core):
-    raise NotImplementedError()
+    _populate_local_storage_for_alice(core)
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'delete', 'path': '/dummy.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/dummy.txt` doesn't exist"}
 
 
 @pytest.mark.xfail
