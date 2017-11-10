@@ -251,11 +251,8 @@ class UserManifestService:
         cur_dir = self.user_manifest
         reps = path.split('/')
         for rep in reps:
-            # TODO: drop support for . and .. ?
-            if not rep or rep == '.':
+            if not rep:
                 continue
-            elif rep == '..':
-                cur_dir = cur_dir['parent']
             else:
                 try:
                     cur_dir = cur_dir['children'][rep]
