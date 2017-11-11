@@ -7,7 +7,10 @@ from nacl.public import Box
 from nacl.secret import SecretBox
 
 from .local_storage import LocalStorage
-from .local_user_manifest import LocalUserManifest, decrypt_and_load_local_user_manifest
+from .local_user_manifest import (
+    LocalUserManifest, decrypt_and_load_local_user_manifest,
+    dump_and_encrypt_local_user_manifest
+)
 from .file_manager import FileManager
 from .backend_connection import BackendConnection
 from .utils import BaseCmdSchema, from_jsonb64, to_jsonb64, abort, ParsecError
@@ -87,15 +90,19 @@ class LocalFS:
 
     async def init(self):
         await self.backend_conn.init()
-        raw = self.local_storage.get_local_user_manifest()
-        if not raw:
+        ciphered = self.local_storage.get_local_user_manifest()
+        if not ciphered:
             self.local_user_manifest = LocalUserManifest()
         else:
             self.local_user_manifest = decrypt_and_load_local_user_manifest(
-                self.auth_privkey, raw)
+                self.auth_privkey, ciphered)
 
     async def teardown(self):
         await self.backend_conn.teardown()
+
+    def _sync_local_user_manifest(self):
+        ciphered = dump_and_encrypt_local_user_manifest(self.auth_privkey, self.local_user_manifest)
+        self.local_storage.save_local_user_manifest(ciphered)
 
     async def _cmd_FILE_CREATE(self, req):
         req = PathOnlySchema().load(req)
@@ -109,7 +116,8 @@ class LocalFS:
             'id': file.id,
             'key': to_jsonb64(key)
         }
-        # TODO: sync user manifest + placeholder file
+        self._sync_local_user_manifest()
+        file.sync()
         return {'status': 'ok'}
 
     async def _cmd_FILE_READ(self, req):
@@ -176,7 +184,7 @@ class LocalFS:
         now = pendulum.utcnow().isoformat()
         dirobj['children'][name] = {
             'type': 'folder', 'children': {}, 'stat': {'created': now, 'updated': now}}
-        # TODO: sync user manifest
+        self._sync_local_user_manifest()
         return {'status': 'ok'}
 
     async def _cmd_MOVE(self, req):
@@ -194,7 +202,7 @@ class LocalFS:
         dstobj = self.local_user_manifest.retrieve_path(dstdirpath)
         dstobj['children'][dstfilename] = srcobj['children'][scrfilename]
         del srcobj['children'][scrfilename]
-        # TODO: sync user manifest
+        self._sync_local_user_manifest()
         return {'status': 'ok'}
 
     async def _cmd_DELETE(self, req):
@@ -204,7 +212,7 @@ class LocalFS:
         dirpath, leafname = path.rsplit('/', 1)
         obj = self.local_user_manifest.retrieve_path(dirpath)
         del obj['children'][leafname]
-        # TODO: sync user manifest
+        self._sync_local_user_manifest()
         return {'status': 'ok'}
 
     async def _cmd_FILE_TRUNCATE(self, req):

@@ -116,7 +116,7 @@ class LocalFile(BaseLocalFile):
         return self.box.encrypt(json.dumps(self.data).encode())
 
     def sync(self):
-        self.file_manager.local_storage.save_dirty_file_manifest(self.id, ciphered_data)
+        self.file_manager.local_storage.save_dirty_file_manifest(self.id, self.dump())
 
 
 @attr.s
@@ -164,12 +164,15 @@ class PlaceHolderFile(BaseLocalFile):
         data = json.loads(box.decrypt(ciphered_data).decode())
         return cls(file_manager, id, box, data)
 
+    def dump(self):
+        return self.box.encrypt(json.dumps(self.data).encode())
+
+    def sync(self):
+        self.file_manager.local_storage.save_placeholder_file_manifest(self.id, self.dump())
+
     @classmethod
     def create(cls, file_manager):
         id = uuid4().hex
         key = _generate_sym_key()
         box = SecretBox(key)
         return cls(file_manager, id, box), key
-
-    def dump(self):
-        return self.box.encrypt(json.dumps(self.data).encode())

@@ -2,12 +2,13 @@ import trio
 import socket
 import attr
 from collections import defaultdict
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from functools import wraps
 from nacl.public import PrivateKey
 
 from foobar.main import CoreApp
 from foobar.utils import CookedSocket
+from foobar.local_storage import BaseLocalStorage
 
 from tests.populate_local_storage import populate_local_storage_cls
 
@@ -79,16 +80,16 @@ class ConnectToCore:
 
 
 def mocked_local_storage_cls_factory():
-    # LocalStorage should store on disk, but faster and easier to do that
-    # in memory during tests
-    class MockedLocalStorage:
+
+    @attr.s
+    class InMemoryStorage:
         # Can be changed before initialization (that's why we use a factory btw)
-        blocks = {}
-        dirty_blocks = {}
-        dirty_file_manifests = {}
-        placeholder_file_manifests = {}
-        file_manifests = {}
-        local_user_manifest = None
+        blocks = attr.ib(default=attr.Factory(dict))
+        dirty_blocks = attr.ib(default=attr.Factory(dict))
+        dirty_file_manifests = attr.ib(default=attr.Factory(dict))
+        placeholder_file_manifests = attr.ib(default=attr.Factory(dict))
+        file_manifests = attr.ib(default=attr.Factory(dict))
+        local_user_manifest = attr.ib(default=None)
 
         def get_block(self, id):
             return self.blocks.get(id)
@@ -120,7 +121,64 @@ def mocked_local_storage_cls_factory():
         def save_placeholder_file_manifest(self, id, data):
             self.placeholder_file_manifests[id] = data
 
-    return MockedLocalStorage
+    # LocalStorage should store on disk, but faster and easier to do that
+    # in memory during tests
+    mls_cls = Mock(spec=BaseLocalStorage)
+    # Can be changed before initialization (that's why we use a factory btw)
+    mls_cls.test_storage = InMemoryStorage()
+    mls_instance = mls_cls.return_value
+
+    mls_instance.get_block.side_effect = mls_cls.test_storage.get_block
+    mls_instance.get_file_manifest.side_effect = mls_cls.test_storage.get_file_manifest
+    mls_instance.get_local_user_manifest.side_effect = mls_cls.test_storage.get_local_user_manifest
+    mls_instance.save_local_user_manifest.side_effect = mls_cls.test_storage.save_local_user_manifest
+    mls_instance.get_dirty_block.side_effect = mls_cls.test_storage.get_dirty_block
+    mls_instance.save_dirty_block.side_effect = mls_cls.test_storage.save_dirty_block
+    mls_instance.get_dirty_file_manifest.side_effect = mls_cls.test_storage.get_dirty_file_manifest
+    mls_instance.save_dirty_file_manifest.side_effect = mls_cls.test_storage.save_dirty_file_manifest
+    mls_instance.get_placeholder_file_manifest.side_effect = mls_cls.test_storage.get_placeholder_file_manifest
+    mls_instance.save_placeholder_file_manifest.side_effect = mls_cls.test_storage.save_placeholder_file_manifest
+
+    # class MockedLocalStorage:
+    #     # Can be changed before initialization (that's why we use a factory btw)
+    #     blocks = {}
+    #     dirty_blocks = {}
+    #     dirty_file_manifests = {}
+    #     placeholder_file_manifests = {}
+    #     file_manifests = {}
+    #     local_user_manifest = None
+
+    #     def get_block(self, id):
+    #         return self.blocks.get(id)
+
+    #     def get_file_manifest(self, id):
+    #         return self.file_manifests.get(id)
+
+    #     def get_local_user_manifest(self):
+    #         return self.local_user_manifest
+
+    #     def save_local_user_manifest(self, data):
+    #         self.local_user_manifest = data
+
+    #     def get_dirty_block(self, id):
+    #         return self.dirty_blocks.get(id)
+
+    #     def save_dirty_block(self, id, data):
+    #         self.dirty_blocks[id] = data
+
+    #     def get_dirty_file_manifest(self, id):
+    #         return self.dirty_file_manifests.get(id)
+
+    #     def save_dirty_file_manifest(self, id, data):
+    #         self.dirty_file_manifests[id] = data
+
+    #     def get_placeholder_file_manifest(self, id):
+    #         return self.placeholder_file_manifests.get(id)
+
+    #     def save_placeholder_file_manifest(self, id, data):
+    #         self.placeholder_file_manifests[id] = data
+
+    return mls_cls
 
 
 def with_core(config=None, mocked_local_storage=True):

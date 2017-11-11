@@ -65,6 +65,8 @@ async def test_create_folder(core):
             'created': '2017-12-02T12:30:23+00:00',
             'children': ['dir', 'empty_dir', 'new_folder']
         }
+    # Local user manifest should have been flushed to local storage
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 1
     # Test nested as well
     async with core.test_connect('alice@test') as sock:
         await sock.send({'cmd': 'folder_create', 'path': '/dir/new_folder'})
@@ -79,6 +81,8 @@ async def test_create_folder(core):
             'created': '2017-12-02T12:30:23+00:00',
             'children': ['modified.txt', 'new.txt', 'new_folder', 'up_to_date.txt']
         }
+    # Local user manifest should have been flushed another time to local storage
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 2
 
 
 @trio_test
@@ -93,6 +97,8 @@ async def test_create_duplicated_folder(core):
         await sock.send({'cmd': 'folder_create', 'path': '/dir/up_to_date.txt'})
         rep = await sock.recv()
         assert rep == {'status': 'invalid_path', 'reason': 'Path `/dir/up_to_date.txt` already exist'}
+    # No changes mean no flush to local storage
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
 
 
 @trio_test
@@ -103,6 +109,8 @@ async def test_move_folder(core):
         await sock.send({'cmd': 'move', 'src': '/dir', 'dst': '/renamed_dir'})
         rep = await sock.recv()
         assert rep == {'status': 'ok'}
+        # Local user manifest should have been flushed to local storage
+        assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 1
         # Make sure folder is visible
         await sock.send({'cmd': 'stat', 'path': '/'})
         rep = await sock.recv()
@@ -149,6 +157,8 @@ async def test_move_folder_bad_dst(core):
             await sock.send({'cmd': 'move', 'src': src, 'dst': '/dir/unknown/new_foo'})
             rep = await sock.recv()
             assert rep == {'status': 'invalid_path', 'reason': "Path `/dir/unknown` doesn't exist"}
+    # No changes mean no flush to local storage
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
 
 
 @trio_test
@@ -159,6 +169,8 @@ async def test_move_file(core):
         await sock.send({'cmd': 'move', 'src': '/dir/up_to_date.txt', 'dst': '/renamed.txt'})
         rep = await sock.recv()
         assert rep == {'status': 'ok'}
+        # Local user manifest should have been flushed to local storage
+        assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 1
         # Check the destination exists
         await sock.send({'cmd': 'stat', 'path': '/'})
         rep = await sock.recv()
@@ -207,6 +219,8 @@ async def test_move_unknow_file(core):
         await sock.send({'cmd': 'move', 'src': '/dummy.txt', 'dst': '/new_dummy.txt'})
         rep = await sock.recv()
         assert rep == {'status': 'invalid_path', 'reason': "Path `/dummy.txt` doesn't exist"}
+    # No changes mean no flush to local storage
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
 
 
 @trio_test
@@ -217,6 +231,8 @@ async def test_delete_folder(core):
         await sock.send({'cmd': 'delete', 'path': '/empty_dir'})
         rep = await sock.recv()
         assert rep == {'status': 'ok'}
+        # Local user manifest should have been flushed to local storage
+        assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 1
         # Make sure the folder disappeared
         await sock.send({'cmd': 'stat', 'path': '/'})
         rep = await sock.recv()
@@ -239,6 +255,8 @@ async def test_delete_non_empty_folder(core):
         await sock.send({'cmd': 'delete', 'path': '/dir'})
         rep = await sock.recv()
         assert rep == {'status': 'ok'}
+        # Local user manifest should have been flushed to local storage
+        assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 1
         # Make sure the folder disappeared
         await sock.send({'cmd': 'stat', 'path': '/'})
         rep = await sock.recv()
@@ -265,6 +283,8 @@ async def test_delete_file(core):
         await sock.send({'cmd': 'delete', 'path': '/dir/up_to_date.txt'})
         rep = await sock.recv()
         assert rep == {'status': 'ok'}
+        # Local user manifest should have been flushed to local storage
+        assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 1
         # Make sure the folder disappeared
         await sock.send({'cmd': 'stat', 'path': '/dir'})
         rep = await sock.recv()
@@ -290,6 +310,8 @@ async def test_delete_unknow_file(core):
         await sock.send({'cmd': 'delete', 'path': '/dummy.txt'})
         rep = await sock.recv()
         assert rep == {'status': 'invalid_path', 'reason': "Path `/dummy.txt` doesn't exist"}
+    # No changes mean no flush to local storage
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
 
 
 @pytest.mark.xfail
@@ -379,6 +401,10 @@ async def test_create_file(core):
             'updated': '2017-12-10T12:00:00+00:00',
             'size': 0
         }
+    # Placeholder file and local user manifest should have been both flushed
+    # to local storage
+    assert core.mocked_local_storage_cls.return_value.save_placeholder_file_manifest.call_count == 1
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 1
 
 
 @pytest.mark.xfail
