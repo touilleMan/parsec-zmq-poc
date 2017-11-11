@@ -28,6 +28,7 @@ class FileManager:
                 self._files[id] = file
             else:
                 # TODO: handle cache miss with async request to backend
+                # (This is where `file.is_ready` is useful)
                 return None
         await file.is_ready.wait()
         return file
@@ -67,40 +68,97 @@ class BaseLocalFile:
 @attr.s(init=False)
 class PatchedLocalFileFixture(BaseLocalFile):
     _patches = attr.ib()
+    _need_merge = attr.ib(False, init=False)
 
     def __init__(self):
         self._patches = []
-        for db in self.data['dirty_blocks']:
+        for db in self.data.get('dirty_blocks', []):
             self._patches.append(Patch.build_from_dirty_block(self.file_manager, **db))
 
-    async def read(self, size, offset=0):
-        self._patches = _merge_patches(self._patches)
+    async def read(self, size=None, offset=0):
+        size = size if (size is not None and 0 < size < self.size) else self.size
+        if self._need_merge:
+            self._patches = _merge_patches(self._patches)
+
+        async def _read_buffers_from_blocks(offset, size):
+            buffers = []
+            end = offset + size
+            curr_pos = offset
+            for block in self.data['blocks']:
+                block_size = block['size']
+                block_offset = block['offset']
+                block_end = block_offset + block_size
+                # Blocks should be contiguous, so no holes in our read is possible
+                # TODO: detect bad contiguous blocks and raise error ?
+                if block_end <= curr_pos:
+                    continue
+                elif block_offset >= end:
+                    break
+                else:
+                    # TODO: have a hot cache in RAM with unciphered data ?
+                    ciphered = self.file_manager.local_storage.get_block(block['id'])
+                    if not ciphered:
+                        # TODO: fetch block on backend
+                        raise NotImplementedError()
+                    block_data = SecretBox(block['key']).decrypt(ciphered)
+                    buffer = block_data[curr_pos - block_offset:end - block_offset]
+                    buffers.append(buffer)
+                    curr_pos += len(buffer)
+            assert curr_pos == end
+            return buffers
+
+        buffers = []
+        curr_pos = offset
+        end = offset + size
+        # Remember patches are ordered once merged
+        for p in self._patches:
+            if p.end <= curr_pos:
+                continue
+            elif p.offset >= end:
+                # We're done here
+                break
+            else:
+                if p.offset > curr_pos:
+                    missing_size = p.offset - curr_pos
+                    buffers += await _read_buffers_from_blocks(curr_pos, missing_size)
+                    curr_pos += missing_size
+                buffer = p.get_buffer()[curr_pos - p.offset:end - p.offset]
+                buffers.append(buffer)
+                curr_pos += len(buffer)
+                if curr_pos == end:
+                    break
+        if curr_pos < end:
+            buffers += await _read_buffers_from_blocks(curr_pos, end - curr_pos)
+
+        return b''.join(buffers)
 
     def write(self, buffer, offset=0):
+        self._need_merge = True
         self._patches.append(Patch(self.file_manager, offset, len(buffer), buffer=buffer))
         if offset + len(buffer) > self.size:
             self.data['size'] = offset + len(buffer)
 
     def truncate(self, length):
+        self._need_merge = True
         if self.size < length:
             return
         self.data['size'] = length
-        # updated_patches = []
-        # for patch_offset, patch_buffer, patch_size in self._patches:
-        #     if patch_offset < length:
-        #         max_patch_size = length - patch_offset
-        #         if patch_size < max_patch_size:
-        #             updated_patches.append(patch_offset, patch_buffer, patch_size)
-        #         else:
-        #             # Need to cut this patch
-        #             updated_patches.append(
-        #                 patch_offset, patch_buffer[:max_patch_size], max_patch_size)
-        # self._patches = updated_patches
 
     def sync(self):
         # Now is time to clean the patches
-        pass
-        # for patch in _merge_patches(self._patches):
+        if self._need_merge:
+            self._patches = _merge_patches(self._patches)
+        dirty_blocks = self.data['dirty_blocks'] = []
+        for p in self._patches:
+            if not p.dirty_block_id:
+                p.save_dirty_block()
+            dirty_blocks.append({
+                'id': p.dirty_block_id,
+                'key': p.dirty_block_key,
+                'offset': p.offset,
+                'size': p.size
+            })
+        # Child should take care of saving `self.data`
 
 
 @attr.s
@@ -138,7 +196,7 @@ class LocalFile(PatchedLocalFileFixture, BaseLocalFile):
     def load(cls, file_manager, id, rts, wts, key, ciphered_data):
         box = SecretBox(key)
         data = json.loads(box.decrypt(ciphered_data).decode())
-        data.setdefault('placeholder_blocks', [])
+        data.setdefault('dirty_blocks', [])
         return cls(file_manager, id, rts, wts, box, data)
 
     def dump(self):
@@ -166,7 +224,7 @@ class PlaceHolderFile(PatchedLocalFileFixture, BaseLocalFile):
             'version': 0,
             'size': 0,
             'blocks': [],
-            'placeholder_blocks': []
+            'dirty_blocks': []
         }
 
     @property
@@ -211,21 +269,21 @@ class PlaceHolderFile(PatchedLocalFileFixture, BaseLocalFile):
 
 
 def _try_merge_two_patches(p1, p2):
-    # p2 has priority over p1
-    p1offset, p1buffer, p1size = p1
-    p2offset, p2buffer, p2size = p2
-    if ((p1offset < p2offset and p1offset + p1size < p2offset) or
-            (p2offset < p1offset and p2offset + p2size < p1offset)):
+    if ((p1.offset < p2.offset and p1.offset + p1.size < p2.offset) or
+            (p2.offset < p1.offset and p2.offset + p2.size < p1.offset)):
         return None
-    if p1offset < p2offset:
-        newbuffer = p1buffer[:p2offset - p1offset] + p2buffer + p1buffer[p2offset + p2size - p1offset:]
+    p1buffer = p1.get_buffer()
+    p2buffer = p2.get_buffer()
+    # Remember p2 has priority over p1
+    if p1.offset < p2.offset:
+        newbuffer = p1buffer[:p2.offset - p1.offset] + p2buffer + p1buffer[p2.offset + p2.size - p1.offset:]
         newsize = len(newbuffer)
-        newoffset = p1offset
+        newoffset = p1.offset
     else:
-        newbuffer = p2buffer + p1buffer[p2offset + p2size - p1offset:]
+        newbuffer = p2buffer + p1buffer[p2.offset + p2.size - p1.offset:]
         newsize = len(newbuffer)
-        newoffset = p2offset
-    return (newoffset, newbuffer, newsize)
+        newoffset = p2.offset
+    return Patch(p1.file_manager, newoffset, newsize, buffer=newbuffer)
 
 
 def _merge_patches(patches):
@@ -240,7 +298,7 @@ def _merge_patches(patches):
                 new_merged.append(p1)
         new_merged.append(p2)
         merged = new_merged
-    return merged
+    return sorted(merged, key=lambda x: x.offset)
 
 
 @attr.s(slots=True)
@@ -249,25 +307,29 @@ class Patch:
     offset = attr.ib()
     size = attr.ib()
     dirty_block_id = attr.ib(default=None)
+    dirty_block_key = attr.ib(default=None)
     _buffer = attr.ib(default=None)
+
+    @property
+    def end(self):
+        return self.offset + self.size
 
     def get_buffer(self):
         if self._buffer is None:
             if not self.dirty_block_id:
                 raise RuntimeError('This patch has no buffer...')
-            self._buffer = self.file_manager.local_storage.get_dirty_block(self.dirty_block_id)
+            ciphered = self.file_manager.local_storage.get_dirty_block(self.dirty_block_id)
+            self._buffer = SecretBox(self.dirty_block_key).decrypt(ciphered)
         return self._buffer
 
     def save_as_dirty_block(self):
         if self.dirty_block_id:
             raise RuntimeError('Cannot modify already existing `%s` dirty block' % self.dirty_block_id)
         self.dirty_block_id = uuid4().hex
-        key = _generate_sym_key()
-        ciphered = SecretBox(key).encrypt(self._buffer)
+        self.dirty_block_key = _generate_sym_key()
+        ciphered = SecretBox(self.dirty_block_key).encrypt(self._buffer)
         self.file_manager.local_storage.save_dirty_block(self.dirty_block_id, ciphered)
-        return key
 
     @classmethod
     def build_from_dirty_block(cls, file_manager, id, offset, size, key):
-        box = SecretBox(key)
-        return cls(file_manager, offset, size, id, box)
+        return cls(file_manager, offset, size, id, key)
