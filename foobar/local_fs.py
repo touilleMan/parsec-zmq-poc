@@ -131,7 +131,7 @@ class LocalFS:
             # Data not in local and backend is offline
             abort('unavailable_resource')
         content = await file.read(req['size'], req['offset'])
-        return {'status': 'ok', 'content': content}
+        return {'status': 'ok', 'content': to_jsonb64(content)}
 
     async def _cmd_FILE_WRITE(self, req):
         req = cmd_FILE_WRITE_Schema().load(req)
@@ -139,7 +139,10 @@ class LocalFS:
         self.local_user_manifest.check_path(path, should_exists=True, type='file')
         obj = self.local_user_manifest.retrieve_path(path)
         key = from_jsonb64(obj['key'])
-        file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
+        if obj['type'] == 'placeholder_file':
+            file = self.files_manager.get_placeholder_file(obj['id'], key)
+        else:
+            file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
         if not file:
             # Data not in local and backend is offline
             abort('unavailable_resource')
@@ -152,11 +155,30 @@ class LocalFS:
         self.local_user_manifest.check_path(path, should_exists=True, type='file')
         obj = self.local_user_manifest.retrieve_path(path)
         key = from_jsonb64(obj['key'])
-        file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
+        if obj['type'] == 'placeholder_file':
+            file = self.files_manager.get_placeholder_file(obj['id'], key)
+        else:
+            file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
         if not file:
             # Data not in local and backend is offline
             abort('unavailable_resource')
         file.truncate(req['length'])
+        return {'status': 'ok'}
+
+    async def _cmd_FILE_SYNC(self, req):
+        req = PathOnlySchema().load(req)
+        path = req['path']
+        self.local_user_manifest.check_path(path, should_exists=True, type='file')
+        obj = self.local_user_manifest.retrieve_path(path)
+        key = from_jsonb64(obj['key'])
+        if obj['type'] == 'placeholder_file':
+            file = self.files_manager.get_placeholder_file(obj['id'], key)
+        else:
+            file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
+        if not file:
+            # Data not in local and backend is offline
+            abort('unavailable_resource')
+        file.sync()
         return {'status': 'ok'}
 
     async def _cmd_STAT(self, req):

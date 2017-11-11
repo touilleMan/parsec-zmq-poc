@@ -2,6 +2,8 @@ import pytest
 from trio.testing import trio_test
 from freezegun import freeze_time
 
+from foobar.utils import to_jsonb64, from_jsonb64
+
 from tests.common import with_core, with_populated_local_storage
 
 
@@ -321,15 +323,15 @@ async def test_read(core):
         # Blocks only
         await sock.send({'cmd': 'file_read', 'path': '/dir/up_to_date.txt'})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'content': b'Hello from up_to_date.txt !'}
+        assert rep == {'status': 'ok', 'content': to_jsonb64(b'Hello from up_to_date.txt !')}
         # Blocks + dirty blocks
         await sock.send({'cmd': 'file_read', 'path': '/dir/modified.txt'})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'content': b'This is SPARTAAAA !'}
+        assert rep == {'status': 'ok', 'content': to_jsonb64(b'This is SPARTAAAA !')}
         # Dirty blocks only
         await sock.send({'cmd': 'file_read', 'path': '/dir/new.txt'})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'content': b'Welcome to the new file.'}
+        assert rep == {'status': 'ok', 'content': to_jsonb64(b'Welcome to the new file.')}
     # No changes mean no flush to local storage
     assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
 
@@ -358,62 +360,190 @@ async def test_read_with_offset(core):
         # Blocks only
         await sock.send({'cmd': 'file_read', 'path': '/dir/up_to_date.txt', 'offset': 6, 'size': 7})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'content': b'from up'}
+        assert rep == {'status': 'ok', 'content': to_jsonb64(b'from up')}
         # Blocks + dirty blocks
         await sock.send({'cmd': 'file_read', 'path': '/dir/modified.txt', 'offset': 3, 'size': 6})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'content': b's is S'}
+        assert rep == {'status': 'ok', 'content': to_jsonb64(b's is S')}
         # Dirty blocks only
         await sock.send({'cmd': 'file_read', 'path': '/dir/new.txt', 'offset': 9, 'size': 5})
         rep = await sock.recv()
-        assert rep == {'status': 'ok', 'content': b'o the'}
+        assert rep == {'status': 'ok', 'content': to_jsonb64(b'o the')}
     # No changes mean no flush to local storage
     assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
-async def test_write(core):
-    raise NotImplementedError()
+@with_populated_local_storage('alice')
+async def test_write_then_sync(core):
+
+    async def _write(path, offset, content):
+        await sock.send({'cmd': 'file_write', 'path': path, 'offset': offset, 'content': to_jsonb64(content)})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await _write('/dir/up_to_date.txt', 6, b'*^__^*')
+        # Blocks + dirty blocks
+        await _write('/dir/modified.txt', 3, b'*^__^*')
+        # Dirty blocks only
+        await _write('/dir/new.txt', 9, b'*^__^*')
+    # Write doesn't change the local user manifest
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
+    # Also write doesn't sync automatically
+    assert core.mocked_local_storage_cls.return_value.save_dirty_file_manifest.call_count == 0
+    assert core.mocked_local_storage_cls.return_value.save_placeholder_file_manifest.call_count == 0
+
+    # Make sure the data are readable
+
+    async def _read(path, expected):
+        await sock.send({'cmd': 'file_read', 'path': path})
+        rep = await sock.recv()
+        assert rep['status'] == 'ok'
+        assert from_jsonb64(rep['content']) == expected
+
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await _read('/dir/up_to_date.txt', b'Hello *^__^*p_to_date.txt !')
+        # Blocks + dirty blocks
+        await _read('/dir/modified.txt', b'Thi*^__^*PARTAAAA !')
+        # Dirty blocks only
+        await _read('/dir/new.txt', b'Welcome t*^__^*new file.')
+
+    # Also test the sync here
+    async def _sync(path):
+        await sock.send({'cmd': 'file_sync', 'path': path})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await _sync('/dir/up_to_date.txt')
+        # Sync should have been called
+        assert core.mocked_local_storage_cls.return_value.save_dirty_file_manifest.call_count == 1
+        assert core.mocked_local_storage_cls.return_value.save_placeholder_file_manifest.call_count == 0
+        # Blocks + dirty blocks
+        await _sync('/dir/modified.txt')
+        # Sync should have been called
+        assert core.mocked_local_storage_cls.return_value.save_dirty_file_manifest.call_count == 2
+        assert core.mocked_local_storage_cls.return_value.save_placeholder_file_manifest.call_count == 0
+        # Dirty blocks only
+        await _sync('/dir/new.txt')
+        # Sync should have been called
+        assert core.mocked_local_storage_cls.return_value.save_dirty_file_manifest.call_count == 2
+        assert core.mocked_local_storage_cls.return_value.save_placeholder_file_manifest.call_count == 1
+    # Write doesn't change the local user manifest
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
+
+    # Finally check again that data are still readable
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await _read('/dir/up_to_date.txt', b'Hello *^__^*p_to_date.txt !')
+        # Blocks + dirty blocks
+        await _read('/dir/modified.txt', b'Thi*^__^*PARTAAAA !')
+        # Dirty blocks only
+        await _read('/dir/new.txt', b'Welcome t*^__^*new file.')
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
-async def test_write_with_offset(core):
-    raise NotImplementedError()
-
-
-@pytest.mark.xfail
-@trio_test
-@with_core()
+@with_populated_local_storage('alice')
 async def test_write_bad_file(core):
-    # Try write in bad path and folder
-    raise NotImplementedError()
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'file_write', 'path': '/dummy.txt', 'content': to_jsonb64(b'foo')})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/dummy.txt` doesn't exist"}
+        await sock.send({'cmd': 'file_write', 'path': '/dir', 'content': to_jsonb64(b'foo')})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/dir` is not a file"}
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
-async def test_write_bad_file(core):
-    # Try write in bad path and folder
-    raise NotImplementedError()
+@with_populated_local_storage('alice')
+async def test_truncate_then_sync(core):
+    async def _truncate(path, length):
+        await sock.send({'cmd': 'file_truncate', 'path': path, 'length': length})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await _truncate('/dir/up_to_date.txt', 15)
+        # Blocks + dirty blocks
+        await _truncate('/dir/modified.txt', 15)
+        # Dirty blocks only
+        await _truncate('/dir/new.txt', 15)
+    # Write doesn't change the local user manifest
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
+    # Also write doesn't sync automatically
+    assert core.mocked_local_storage_cls.return_value.save_dirty_file_manifest.call_count == 0
+    assert core.mocked_local_storage_cls.return_value.save_placeholder_file_manifest.call_count == 0
+
+    # Make sure the data are readable
+
+    async def _read(path, expected):
+        await sock.send({'cmd': 'file_read', 'path': path})
+        rep = await sock.recv()
+        assert rep['status'] == 'ok'
+        assert from_jsonb64(rep['content']) == expected
+
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await _read('/dir/up_to_date.txt', b'Hello from up_t')
+        # Blocks + dirty blocks
+        await _read('/dir/modified.txt', b'This is SPARTAA')
+        # Dirty blocks only
+        await _read('/dir/new.txt', b'Welcome to the ')
+
+    # Also test the sync here
+    async def _sync(path):
+        await sock.send({'cmd': 'file_sync', 'path': path})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await _sync('/dir/up_to_date.txt')
+        # Sync should have been called
+        assert core.mocked_local_storage_cls.return_value.save_dirty_file_manifest.call_count == 1
+        assert core.mocked_local_storage_cls.return_value.save_placeholder_file_manifest.call_count == 0
+        # Blocks + dirty blocks
+        await _sync('/dir/modified.txt')
+        # Sync should have been called
+        assert core.mocked_local_storage_cls.return_value.save_dirty_file_manifest.call_count == 2
+        assert core.mocked_local_storage_cls.return_value.save_placeholder_file_manifest.call_count == 0
+        # Dirty blocks only
+        await _sync('/dir/new.txt')
+        # Sync should have been called
+        assert core.mocked_local_storage_cls.return_value.save_dirty_file_manifest.call_count == 2
+        assert core.mocked_local_storage_cls.return_value.save_placeholder_file_manifest.call_count == 1
+    # Write doesn't change the local user manifest
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
+
+    # Finally check again that data are still readable
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await _read('/dir/up_to_date.txt', b'Hello from up_t')
+        # Blocks + dirty blocks
+        await _read('/dir/modified.txt', b'This is SPARTAA')
+        # Dirty blocks only
+        await _read('/dir/new.txt', b'Welcome to the ')
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
-async def test_truncate(core):
-    raise NotImplementedError()
-
-
-@pytest.mark.xfail
-@trio_test
-@with_core()
+@with_populated_local_storage('alice')
 async def test_truncate_bad_file(core):
-    # Try truncate in bad path and folder
-    raise NotImplementedError()
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'file_truncate', 'path': '/dummy.txt', 'length': 4})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/dummy.txt` doesn't exist"}
+        await sock.send({'cmd': 'file_truncate', 'path': '/dir', 'length': 4})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/dir` is not a file"}
 
 
 @trio_test
@@ -442,9 +572,14 @@ async def test_create_file(core):
     assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 1
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
+@with_populated_local_storage('alice')
 async def test_create_bad_file(core):
-    # Path already exists or within unknown folder
-    raise NotImplementedError()
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'file_create', 'path': '/dir/up_to_date.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': 'Path `/dir/up_to_date.txt` already exist'}
+        await sock.send({'cmd': 'file_create', 'path': '/dir'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': 'Path `/dir` already exist'}

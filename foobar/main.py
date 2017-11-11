@@ -108,6 +108,11 @@ class CoreApp:
             return {'status': 'login_required'}
         return await self.fs._cmd_FILE_WRITE(req)
 
+    async def _cmd_FILE_SYNC(self, req):
+        if not self.auth_user:
+            return {'status': 'login_required'}
+        return await self.fs._cmd_FILE_SYNC(req)
+
     async def _cmd_STAT(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}

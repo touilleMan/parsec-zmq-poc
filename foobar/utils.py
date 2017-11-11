@@ -71,7 +71,7 @@ class UnknownCheckedSchema(Schema):
         if not abort_on_error:
             return parsed_msg, errors
         if errors:
-            raise ParsecMessageError(errors=errors)
+            raise abort(errors=errors)
         else:
             return parsed_msg
 

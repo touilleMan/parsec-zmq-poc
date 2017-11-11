@@ -58,6 +58,7 @@ async def test_need_login_cmds(core):
                 'file_create',
                 'file_read',
                 'file_write',
+                'file_sync',
                 'stat',
                 'folder_create',
                 'move',

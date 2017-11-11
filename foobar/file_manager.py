@@ -7,7 +7,7 @@ from nacl.public import PrivateKey
 from nacl.secret import SecretBox
 import nacl.utils
 
-from foobar.utils import from_jsonb64
+from foobar.utils import from_jsonb64, to_jsonb64
 
 
 def _generate_sym_key():
@@ -160,10 +160,10 @@ class PatchedLocalFileFixture(BaseLocalFile):
         dirty_blocks = self.data['dirty_blocks'] = []
         for p in self._patches:
             if not p.dirty_block_id:
-                p.save_dirty_block()
+                p.save_as_dirty_block()
             dirty_blocks.append({
                 'id': p.dirty_block_id,
-                'key': p.dirty_block_key,
+                'key': to_jsonb64(p.dirty_block_key),
                 'offset': p.offset,
                 'size': p.size
             })
