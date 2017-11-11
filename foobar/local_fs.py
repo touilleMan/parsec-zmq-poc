@@ -5,17 +5,12 @@ from uuid import uuid4
 from marshmallow import fields, validate
 from nacl.public import Box
 from nacl.secret import SecretBox
-import nacl.utils
 
 from .local_storage import LocalStorage
 from .local_user_manifest import LocalUserManifest, decrypt_and_load_local_user_manifest
 from .file_manager import FileManager
 from .backend_connection import BackendConnection
-from .utils import BaseCmdSchema, from_jsonb64, abort, ParsecError
-
-
-def _generate_sym_key():
-    return nacl.utils.random(SecretBox.KEY_SIZE)
+from .utils import BaseCmdSchema, from_jsonb64, to_jsonb64, abort, ParsecError
 
 
 class InvalidPath(ParsecError):
@@ -106,30 +101,15 @@ class LocalFS:
         req = PathOnlySchema().load(req)
         path = req['path']
         self.local_user_manifest.check_path(path, should_exists=False)
-        now = pendulum.now().isoformat()
-        file_manifest = {
-            'version': 1,
-            'created': now,
-            'updated': now,
-            'blocks': [],
-            'size': 0
-        }
-        vlob_key = _generate_sym_key()
-        box = SecretBox(vlob_key)
-        vlob_content = box.encrypt(json.dumps(file_manifest).encode())
-        # TODO finish this shit...
-
-        # vlob_access = await self._create_vlob(vlob_content)
+        file, key = self.files_manager.create_placeholder_file()
         dirpath, name = path.rsplit('/', 1)
-        dirobj = self._retrieve_path(dirpath)
+        dirobj = self.local_user_manifest.retrieve_path(dirpath)
         dirobj['children'][name] = {
-            'type': 'file',
-            'id': vlob_access.id,
-            'read_trust_seed': vlob_access.read_trust_seed,
-            'write_trust_seed': vlob_access.write_trust_seed,
-            'key': to_jsonb64(vlob_key.key)
+            'type': 'placeholder_file',
+            'id': file.id,
+            'key': to_jsonb64(key)
         }
-        await self._commit_manifest()
+        # TODO: sync user manifest + placeholder file
         return {'status': 'ok'}
 
     async def _cmd_FILE_READ(self, req):
@@ -138,6 +118,7 @@ class LocalFS:
 
     async def _cmd_FILE_WRITE(self, req):
         req = cmd_FILE_WRITE_Schema().load(req)
+        # TODO: sync file
         return {'status': 'ok'}
 
     async def _cmd_STAT(self, req):
@@ -170,7 +151,7 @@ class LocalFS:
             }
         else:  # placeholder file
             key = from_jsonb64(obj['key'])
-            file = await self.files_manager.get_placeholder_file(obj['id'], key)
+            file = self.files_manager.get_placeholder_file(obj['id'], key)
             if not file:
                 # Data not in local and backend is offline, should never
                 # happened with placeholder !
@@ -192,9 +173,10 @@ class LocalFS:
         self.local_user_manifest.check_path(path, should_exists=False)
         dirpath, name = path.rsplit('/', 1)
         dirobj = self.local_user_manifest.retrieve_path(dirpath)
-        now = pendulum.now().isoformat()
+        now = pendulum.utcnow().isoformat()
         dirobj['children'][name] = {
             'type': 'folder', 'children': {}, 'stat': {'created': now, 'updated': now}}
+        # TODO: sync user manifest
         return {'status': 'ok'}
 
     async def _cmd_MOVE(self, req):
@@ -212,6 +194,7 @@ class LocalFS:
         dstobj = self.local_user_manifest.retrieve_path(dstdirpath)
         dstobj['children'][dstfilename] = srcobj['children'][scrfilename]
         del srcobj['children'][scrfilename]
+        # TODO: sync user manifest
         return {'status': 'ok'}
 
     async def _cmd_DELETE(self, req):
@@ -221,12 +204,15 @@ class LocalFS:
         dirpath, leafname = path.rsplit('/', 1)
         obj = self.local_user_manifest.retrieve_path(dirpath)
         del obj['children'][leafname]
+        # TODO: sync user manifest
         return {'status': 'ok'}
 
     async def _cmd_FILE_TRUNCATE(self, req):
         req = cmd_FILE_TRUNCATE_Schema().load(req)
+        # TODO: sync file
         return {'status': 'ok'}
 
     async def _cmd_SYNCHRONISE(self, req):
         BaseCmdSchema().load(req)
+        # TODO: sync file and user manifest if placeholder file
         return {'status': 'not_implemented'}

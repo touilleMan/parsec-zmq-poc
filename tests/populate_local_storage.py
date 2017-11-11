@@ -32,8 +32,8 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
     up_to_date_txt_key = b'0\xba\x9fY\xd1\xb4D\x93\r\xf6\xa7[\xe8\xaa\xf9\xeea\xb8\x01\x98\xc1~im}C\xfa\xde\\\xe6\xa1-'
     up_to_date_txt_fms = {
         'version': 2,
-        'created': '2017-12-02T12:30:30',
-        'updated': '2017-12-02T12:30:45',
+        'created': '2017-12-02T12:30:30+00:00',
+        'updated': '2017-12-02T12:30:45+00:00',
         'blocks': [
             {'id': up_to_date_txt_block_1_id, 'key': to_jsonb64(up_to_date_txt_block_1_key), 'offset': 0},
             {'id': up_to_date_txt_block_2_id, 'key': to_jsonb64(up_to_date_txt_block_2_key), 'offset': 10},
@@ -58,8 +58,8 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
     modified_txt_key = b'0\xba\x9fY\xd1\xb4D\x93\r\xf6\xa7[\xe8\xaa\xf9\xeea\xb8\x01\x98\xc1~im}C\xfa\xde\\\xe6\xa1-'
     modified_txt_fms = {
         'version': 2,
-        'created': '2017-12-02T12:50:30',
-        'updated': '2017-12-02T12:50:45',
+        'created': '2017-12-02T12:50:30+00:00',
+        'updated': '2017-12-02T12:50:45+00:00',
         'blocks': [
             {'id': modified_txt_block_1_id, 'key': to_jsonb64(modified_txt_block_1_key), 'offset': 0},
         ],
@@ -77,8 +77,8 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
 
     modified_txt_dirty_fm = {
         'base_version': 2,
-        'created': '2017-12-02T12:50:30',
-        'updated': '2017-12-02T12:51:00',
+        'created': '2017-12-02T12:50:30+00:00',
+        'updated': '2017-12-02T12:51:00+00:00',
         'blocks': [
             {'id': modified_txt_block_1_id, 'key': to_jsonb64(modified_txt_block_1_key), 'offset': 0},
         ],
@@ -108,8 +108,8 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
     new_txt_placeholder_key = b'"\x08"Q\xfbc\xa3 \xf9\xde\xbf\xc3\x07?\x9a\xa6V\xcet\x0c\xa1C\xf2\xa06\xa1\xc9 \xbf\xf6t\xbb'
     new_txt_placeholder_fm = {
         'base_version': 2,
-        'created': '2017-12-02T12:50:30',
-        'updated': '2017-12-02T12:51:00',
+        'created': '2017-12-02T12:50:30+00:00',
+        'updated': '2017-12-02T12:51:00+00:00',
         'blocks': [
         ],
         'dirty_blocks': [
@@ -129,17 +129,17 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
         'file_placeholders': [new_txt_placeholder_id],
         'tree': {
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': {
                 'empty_dir': {
                     'type': 'folder',
-                    'created': '2017-12-02T12:29:03',
+                    'created': '2017-12-02T12:29:03+00:00',
                     'children': {
                     },
                 },
                 'dir': {
                     'type': 'folder',
-                    'created': '2017-12-02T12:30:23',
+                    'created': '2017-12-02T12:30:23+00:00',
                     'children': {
 
                         'new.txt': {

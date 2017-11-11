@@ -1,5 +1,6 @@
 import pytest
 from trio.testing import trio_test
+from freezegun import freeze_time
 
 from tests.common import with_core, with_populated_local_storage
 
@@ -14,7 +15,7 @@ async def test_stat_folder(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['dir', 'empty_dir']
         }
         # Test nested folder as well
@@ -23,7 +24,7 @@ async def test_stat_folder(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['modified.txt', 'new.txt', 'up_to_date.txt']
         }
 
@@ -41,8 +42,8 @@ async def test_stat_file(core):
         'is_dirty': False,
         'is_placeholder': False,
         'version': 2,
-        'created': '2017-12-02T12:30:30',
-        'updated': '2017-12-02T12:30:45',
+        'created': '2017-12-02T12:30:30+00:00',
+        'updated': '2017-12-02T12:30:45+00:00',
         'size': 26
     }
 
@@ -61,7 +62,7 @@ async def test_create_folder(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['dir', 'empty_dir', 'new_folder']
         }
     # Test nested as well
@@ -75,7 +76,7 @@ async def test_create_folder(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['modified.txt', 'new.txt', 'new_folder', 'up_to_date.txt']
         }
 
@@ -108,7 +109,7 @@ async def test_move_folder(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['empty_dir', 'renamed_dir'],
         }
         # Make sure folder still contains the same stuff
@@ -117,7 +118,7 @@ async def test_move_folder(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['modified.txt', 'new.txt', 'up_to_date.txt']
         }
         # And old folder nam is no longer available
@@ -164,7 +165,7 @@ async def test_move_file(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['dir', 'empty_dir', 'renamed.txt']
         }
         # Check the source no longer exits
@@ -173,7 +174,7 @@ async def test_move_file(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['modified.txt', 'new.txt']
         }
         # Make sure we can no longer stat source name...
@@ -192,8 +193,8 @@ async def test_move_file(core):
             'is_dirty': False,
             'is_placeholder': False,
             'version': 2,
-            'created': '2017-12-02T12:30:30',
-            'updated': '2017-12-02T12:30:45',
+            'created': '2017-12-02T12:30:30+00:00',
+            'updated': '2017-12-02T12:30:45+00:00',
             'size': 26
         }
 
@@ -222,7 +223,7 @@ async def test_delete_folder(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['dir'],
         }
         await sock.send({'cmd': 'stat', 'path': '/empty_dir'})
@@ -244,7 +245,7 @@ async def test_delete_non_empty_folder(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['empty_dir']
         }
         await sock.send({'cmd': 'stat', 'path': '/dir'})
@@ -270,7 +271,7 @@ async def test_delete_file(core):
         assert rep == {
             'status': 'ok',
             'type': 'folder',
-            'created': '2017-12-02T12:30:23',
+            'created': '2017-12-02T12:30:23+00:00',
             'children': ['modified.txt', 'new.txt']
         }
         await sock.send({'cmd': 'stat', 'path': '/dir/up_to_date.txt'})
@@ -358,15 +359,26 @@ async def test_truncate_bad_file(core):
     raise NotImplementedError()
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
 async def test_create_file(core):
     async with core.test_connect('alice@test') as sock:
-        await sock.send({'cmd': 'file_create', 'path': '/new.txt'})
+        with freeze_time('2017-12-10T12:00:00'):
+            await sock.send({'cmd': 'file_create', 'path': '/new.txt'})
+            rep = await sock.recv()
+        assert rep == {'status': 'ok'}
+        await sock.send({'cmd': 'stat', 'path': '/new.txt'})
         rep = await sock.recv()
-        assert rep == {'status': 'invalid_path', 'reason': "Path `/dummy.txt` doesn't exist"}
-    raise NotImplementedError()
+        assert rep == {
+            'status': 'ok',
+            'type': 'file',
+            'is_dirty': True,
+            'is_placeholder': True,
+            'version': 0,
+            'created': '2017-12-10T12:00:00+00:00',
+            'updated': '2017-12-10T12:00:00+00:00',
+            'size': 0
+        }
 
 
 @pytest.mark.xfail

@@ -96,7 +96,7 @@ class CoreApp:
     async def _cmd_FILE_CREATE(self, req):
         if not self.auth_user:
             return {'status': 'login_required'}
-        return {'status': 'ok'}
+        return await self.fs._cmd_FILE_CREATE(req)
 
     async def _cmd_FILE_READ(self, req):
         if not self.auth_user:

@@ -1,9 +1,15 @@
 import attr
 import json
 import trio
+from uuid import uuid4
 import pendulum
 from nacl.public import PrivateKey
 from nacl.secret import SecretBox
+import nacl.utils
+
+
+def _generate_sym_key():
+    return nacl.utils.random(SecretBox.KEY_SIZE)
 
 
 class FileManager:
@@ -30,11 +36,16 @@ class FileManager:
             ciphered_data = self.local_storage.get_placeholder_file_manifest(id)
             if ciphered_data:
                 file = PlaceHolderFile.load(self, id, key, ciphered_data)
-                self._files[id] = file
             else:
-                # TODO: handle cache miss with async request to backend
-                return None
+                # TODO: better exception ?
+                raise RuntimeError('Unknown placeholder file `%s`' % id)
+            self._files[id] = file
         return file
+
+    def create_placeholder_file(self):
+        file, key = PlaceHolderFile.create(self)
+        self._files[file.id] = file
+        return file, key
 
 
 class BaseLocalFile:
@@ -108,6 +119,7 @@ class LocalFile(BaseLocalFile):
         self.file_manager.local_storage.save_dirty_file_manifest(self.id, ciphered_data)
 
 
+@attr.s
 class PlaceHolderFile(BaseLocalFile):
     file_manager = attr.ib()
     id = attr.ib()
@@ -115,8 +127,8 @@ class PlaceHolderFile(BaseLocalFile):
     data = attr.ib()
 
     @data.default
-    def _default_data():
-        now = pendulum.now().isoformat()
+    def _default_data(field):
+        now = pendulum.utcnow().isoformat()
         return {
             'created': now,
             'updated': now,
@@ -151,6 +163,13 @@ class PlaceHolderFile(BaseLocalFile):
         box = SecretBox(key)
         data = json.loads(box.decrypt(ciphered_data).decode())
         return cls(file_manager, id, box, data)
+
+    @classmethod
+    def create(cls, file_manager):
+        id = uuid4().hex
+        key = _generate_sym_key()
+        box = SecretBox(key)
+        return cls(file_manager, id, box), key
 
     def dump(self):
         return self.box.encrypt(json.dumps(self.data).encode())

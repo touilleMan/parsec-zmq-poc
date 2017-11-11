@@ -12,7 +12,7 @@ class InvalidPath(ParsecError):
 
 
 def _create_root_tree():
-    now = pendulum.now().isoformat()
+    now = pendulum.utcnow().isoformat()
     return {
         'type': 'folder',
         'created': now,
