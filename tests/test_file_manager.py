@@ -4,6 +4,7 @@ from unittest.mock import Mock
 from nacl.secret import SecretBox
 
 from foobar.file_manager import PlaceHolderFile, _merge_patches, _try_merge_two_patches, Patch
+from foobar.utils import to_jsonb64
 
 from tests.common import mocked_local_storage_cls_factory
 
@@ -114,8 +115,8 @@ def _local_file_factory(with_blocks=False):
         mls_cls.test_storage.blocks[block_2_id] = SecretBox(block_2_key).encrypt(b'ABCDEFGHIJ')
 
         phf.data['blocks'] = [
-            {'id': block_1_id, 'key': block_1_key, 'offset': 0, 'size': 10},
-            {'id': block_2_id, 'key': block_2_key, 'offset': 10, 'size': 10},
+            {'id': block_1_id, 'key': to_jsonb64(block_1_key), 'offset': 0, 'size': 10},
+            {'id': block_2_id, 'key': to_jsonb64(block_2_key), 'offset': 10, 'size': 10},
         ]
         phf.data['size'] = 20
     return phf, key

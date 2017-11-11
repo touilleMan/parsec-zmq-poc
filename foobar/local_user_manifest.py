@@ -60,8 +60,13 @@ class LocalUserManifest:
             leafobj = obj['children'][leafname]
             if not should_exists:
                 raise InvalidPath("Path `%s` already exist" % path)
-            if type is not None and leafobj['type'] != type:
-                raise InvalidPath("Path `%s` is not a %s" % (path, type))
+            if type is not None:
+                if type == 'folder':
+                    if leafobj['type'] != 'folder':
+                        raise InvalidPath("Path `%s` is not a folder" % path)
+                else:
+                    if leafobj['type'] not in ('file', 'placeholder_file'):
+                        raise InvalidPath("Path `%s` is not a file" % path)
         except KeyError:
             if should_exists:
                 raise InvalidPath("Path `%s` doesn't exist" % path)

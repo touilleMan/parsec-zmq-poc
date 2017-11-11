@@ -20,9 +20,9 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
     # Hold my beer...
 
     # /dir/up_to_date.txt - Blocks
-    up_to_date_txt_block_1_id = '505b0bef5dd44763abc9eac03c765bc3',
+    up_to_date_txt_block_1_id = '505b0bef5dd44763abc9eac03c765bc3'
     up_to_date_txt_block_1_key = b'\xec\x1d\x84\x80\x05\x18\xb0\x8a\x1d\x81\xe0\xdb\xe5%wx\x9f\x7f\x01\xa6\x8f#>\xc5]\xae|\xfd\x1d\xc22\x05'
-    store.blocks[up_to_date_txt_block_1_id] = SecretBox(up_to_date_txt_block_1_key).encrypt(b'Hello from')
+    store.blocks[up_to_date_txt_block_1_id] = SecretBox(up_to_date_txt_block_1_key).encrypt(b'Hello from ')
     up_to_date_txt_block_2_id = '0187fa3fc8a5480cbb3ef9df5dd2b7e9'
     up_to_date_txt_block_2_key = b'\xae\x85y\xdd:\xae\xa6\xf2\xdf\xce#U\x17\xffa\xde\x19\x1d\xa7\x84[\xb8\x92{$6\xf9\xc4\x8b\xbcT\x14'
     store.blocks[up_to_date_txt_block_2_id] = SecretBox(up_to_date_txt_block_2_key).encrypt(b'up_to_date.txt !')
@@ -36,10 +36,10 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
         'created': '2017-12-02T12:30:30+00:00',
         'updated': '2017-12-02T12:30:45+00:00',
         'blocks': [
-            {'id': up_to_date_txt_block_1_id, 'key': to_jsonb64(up_to_date_txt_block_1_key), 'offset': 0},
-            {'id': up_to_date_txt_block_2_id, 'key': to_jsonb64(up_to_date_txt_block_2_key), 'offset': 10},
+            {'id': up_to_date_txt_block_1_id, 'key': to_jsonb64(up_to_date_txt_block_1_key), 'offset': 0, 'size': 11},
+            {'id': up_to_date_txt_block_2_id, 'key': to_jsonb64(up_to_date_txt_block_2_key), 'offset': 11, 'size': 16},
         ],
-        'size': 26
+        'size': 27
     }
     store.file_manifests[up_to_date_txt_id] = SecretBox(up_to_date_txt_key).encrypt(json.dumps(up_to_date_txt_fms).encode())
 
@@ -62,7 +62,7 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
         'created': '2017-12-02T12:50:30+00:00',
         'updated': '2017-12-02T12:50:45+00:00',
         'blocks': [
-            {'id': modified_txt_block_1_id, 'key': to_jsonb64(modified_txt_block_1_key), 'offset': 0},
+            {'id': modified_txt_block_1_id, 'key': to_jsonb64(modified_txt_block_1_key), 'offset': 0, 'size': 18},
         ],
         'size': 18
     }
@@ -81,12 +81,12 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
         'created': '2017-12-02T12:50:30+00:00',
         'updated': '2017-12-02T12:51:00+00:00',
         'blocks': [
-            {'id': modified_txt_block_1_id, 'key': to_jsonb64(modified_txt_block_1_key), 'offset': 0},
+            {'id': modified_txt_block_1_id, 'key': to_jsonb64(modified_txt_block_1_key), 'offset': 0, 'size': 18},
         ],
         'dirty_blocks': [
-            {'id': modified_txt_dirty_block_1_id, 'key': to_jsonb64(modified_txt_dirty_block_1_key), 'offset': 16}
+            {'id': modified_txt_dirty_block_1_id, 'key': to_jsonb64(modified_txt_dirty_block_1_key), 'offset': 8, 'size': 11}
         ],
-        'size': 27
+        'size': 19
     }
     store.dirty_file_manifests[modified_txt_id] = SecretBox(modified_txt_key).encrypt(json.dumps(modified_txt_dirty_fm).encode())
 
@@ -96,7 +96,7 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
 
     new_txt_dirty_block_1_id = 'faa4e1068dad47b4a758a73102478388'
     new_txt_dirty_block_1_key = b'\xab\xcfn\xc8*\xe8|\xc42\xf2\xfao\x1b\xc1Xm\xb4\xb9JBe\x9a1W\r(\xcc\xbd1\x12RB'
-    store.dirty_blocks[new_txt_dirty_block_1_id] = SecretBox(new_txt_dirty_block_1_key).encrypt(b'Welcome to')
+    store.dirty_blocks[new_txt_dirty_block_1_id] = SecretBox(new_txt_dirty_block_1_key).encrypt(b'Welcome to ')
 
     new_txt_dirty_block_2_id = '4c5b4338a47c462098d6c98856f5bf56'
     new_txt_dirty_block_2_key = b'\xcb\x1c\xe4\x80\x8d\xca\rl?z\xa4\x82J7\xc5\xd5\xed5^\xb6\x05\x8cR;A\xbd\xb1 \xbd\xc2?\xe9'
@@ -114,10 +114,10 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
         'blocks': [
         ],
         'dirty_blocks': [
-            {'id': new_txt_dirty_block_1_id, 'key': to_jsonb64(new_txt_dirty_block_1_key), 'offset': 0},
-            {'id': new_txt_dirty_block_2_id, 'key': to_jsonb64(new_txt_dirty_block_2_key), 'offset': 10}
+            {'id': new_txt_dirty_block_1_id, 'key': to_jsonb64(new_txt_dirty_block_1_key), 'offset': 0, 'size': 11},
+            {'id': new_txt_dirty_block_2_id, 'key': to_jsonb64(new_txt_dirty_block_2_key), 'offset': 11, 'size': 13}
         ],
-        'size': 23
+        'size': 24
     }
     store.placeholder_file_manifests[new_txt_placeholder_id] = SecretBox(new_txt_placeholder_key).encrypt(json.dumps(new_txt_placeholder_fm).encode())
 

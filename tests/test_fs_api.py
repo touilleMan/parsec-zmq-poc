@@ -44,7 +44,7 @@ async def test_stat_file(core):
         'version': 2,
         'created': '2017-12-02T12:30:30+00:00',
         'updated': '2017-12-02T12:30:45+00:00',
-        'size': 26
+        'size': 27
     }
 
 
@@ -207,7 +207,7 @@ async def test_move_file(core):
             'version': 2,
             'created': '2017-12-02T12:30:30+00:00',
             'updated': '2017-12-02T12:30:45+00:00',
-            'size': 26
+            'size': 27
         }
 
 
@@ -304,7 +304,6 @@ async def test_delete_file(core):
 
 @trio_test
 @with_core()
-@with_populated_local_storage('alice')
 async def test_delete_unknow_file(core):
     async with core.test_connect('alice@test') as sock:
         await sock.send({'cmd': 'delete', 'path': '/dummy.txt'})
@@ -314,26 +313,62 @@ async def test_delete_unknow_file(core):
     assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
+@with_populated_local_storage('alice')
 async def test_read(core):
-    raise NotImplementedError()
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await sock.send({'cmd': 'file_read', 'path': '/dir/up_to_date.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'content': b'Hello from up_to_date.txt !'}
+        # Blocks + dirty blocks
+        await sock.send({'cmd': 'file_read', 'path': '/dir/modified.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'content': b'This is SPARTAAAA !'}
+        # Dirty blocks only
+        await sock.send({'cmd': 'file_read', 'path': '/dir/new.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'content': b'Welcome to the new file.'}
+    # No changes mean no flush to local storage
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
 
 
-@pytest.mark.xfail
 @trio_test
 @with_core()
+@with_populated_local_storage('alice')
+async def test_read_unknow_file(core):
+    async with core.test_connect('alice@test') as sock:
+        await sock.send({'cmd': 'file_read', 'path': '/dummy.txt'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/dummy.txt` doesn't exist"}
+        # Try to read a folder, because why not ?
+        await sock.send({'cmd': 'file_read', 'path': '/dir'})
+        rep = await sock.recv()
+        assert rep == {'status': 'invalid_path', 'reason': "Path `/dir` is not a file"}
+    # No changes mean no flush to local storage
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
+
+
+@trio_test
+@with_core()
+@with_populated_local_storage('alice')
 async def test_read_with_offset(core):
-    raise NotImplementedError()
-
-
-@pytest.mark.xfail
-@trio_test
-@with_core()
-async def test_read_bad_file(core):
-    # Try read bad path and folder
-    raise NotImplementedError()
+    async with core.test_connect('alice@test') as sock:
+        # Blocks only
+        await sock.send({'cmd': 'file_read', 'path': '/dir/up_to_date.txt', 'offset': 6, 'size': 7})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'content': b'from up'}
+        # Blocks + dirty blocks
+        await sock.send({'cmd': 'file_read', 'path': '/dir/modified.txt', 'offset': 3, 'size': 6})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'content': b's is S'}
+        # Dirty blocks only
+        await sock.send({'cmd': 'file_read', 'path': '/dir/new.txt', 'offset': 9, 'size': 5})
+        rep = await sock.recv()
+        assert rep == {'status': 'ok', 'content': b'o the'}
+    # No changes mean no flush to local storage
+    assert core.mocked_local_storage_cls.return_value.save_local_user_manifest.call_count == 0
 
 
 @pytest.mark.xfail

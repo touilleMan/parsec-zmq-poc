@@ -7,6 +7,8 @@ from nacl.public import PrivateKey
 from nacl.secret import SecretBox
 import nacl.utils
 
+from foobar.utils import from_jsonb64
+
 
 def _generate_sym_key():
     return nacl.utils.random(SecretBox.KEY_SIZE)
@@ -21,15 +23,18 @@ class FileManager:
     async def get_file(self, id, rts, wts, key):
         file = self._files.get(id)
         if not file:
-            ciphered_data = self.local_storage.get_file_manifest(id)
-            if ciphered_data:
-                file = LocalFile.load(self, id, rts, wts, key, ciphered_data)
-                file.is_ready.set()
-                self._files[id] = file
-            else:
-                # TODO: handle cache miss with async request to backend
-                # (This is where `file.is_ready` is useful)
-                return None
+            # First check for dirty file manifest
+            ciphered_data = self.local_storage.get_dirty_file_manifest(id)
+            if not ciphered_data:
+                # then for regular file manifest in cache
+                ciphered_data = self.local_storage.get_file_manifest(id)
+                if not ciphered_data:
+                    # TODO: handle cache miss with async request to backend
+                    # (This is where `file.is_ready` is useful)
+                    return None
+            file = LocalFile.load(self, id, rts, wts, key, ciphered_data)
+            file.is_ready.set()
+            self._files[id] = file
         await file.is_ready.wait()
         return file
 
@@ -70,10 +75,13 @@ class PatchedLocalFileFixture(BaseLocalFile):
     _patches = attr.ib()
     _need_merge = attr.ib(False, init=False)
 
-    def __init__(self):
-        self._patches = []
+    def _load_patches(self):
+        patches = []
         for db in self.data.get('dirty_blocks', []):
-            self._patches.append(Patch.build_from_dirty_block(self.file_manager, **db))
+            key = from_jsonb64(db['key'])
+            patches.append(Patch.build_from_dirty_block(
+                self.file_manager, db['id'], db['offset'], db['size'], key))
+        return patches
 
     async def read(self, size=None, offset=0):
         size = size if (size is not None and 0 < size < self.size) else self.size
@@ -100,7 +108,8 @@ class PatchedLocalFileFixture(BaseLocalFile):
                     if not ciphered:
                         # TODO: fetch block on backend
                         raise NotImplementedError()
-                    block_data = SecretBox(block['key']).decrypt(ciphered)
+                    key = from_jsonb64(block['key'])
+                    block_data = SecretBox(key).decrypt(ciphered)
                     buffer = block_data[curr_pos - block_offset:end - block_offset]
                     buffers.append(buffer)
                     curr_pos += len(buffer)
@@ -170,7 +179,11 @@ class LocalFile(PatchedLocalFileFixture, BaseLocalFile):
     box = attr.ib()
     data = attr.ib()
     is_ready = attr.ib(default=attr.Factory(trio.Event))
-    _patches = attr.ib(default=attr.Factory(list))
+    _patches = attr.ib()
+
+    @_patches.default
+    def _load_patches(self):
+        return super()._load_patches()
 
     @property
     def created(self):
@@ -213,7 +226,11 @@ class PlaceHolderFile(PatchedLocalFileFixture, BaseLocalFile):
     id = attr.ib()
     box = attr.ib()
     data = attr.ib()
-    _patches = attr.ib(default=attr.Factory(list))
+    _patches = attr.ib()
+
+    @_patches.default
+    def _load_patches(self):
+        return super()._load_patches()
 
     @data.default
     def _default_data(field):

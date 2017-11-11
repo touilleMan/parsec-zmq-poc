@@ -121,9 +121,12 @@ class LocalFS:
         req = cmd_FILE_READ_Schema().load(req)
         path = req['path']
         self.local_user_manifest.check_path(path, should_exists=True, type='file')
-        obj = self.local_user_manifest.retrieve_file(path)
+        obj = self.local_user_manifest.retrieve_path(path)
         key = from_jsonb64(obj['key'])
-        file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
+        if obj['type'] == 'placeholder_file':
+            file = self.files_manager.get_placeholder_file(obj['id'], key)
+        else:
+            file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
         if not file:
             # Data not in local and backend is offline
             abort('unavailable_resource')
@@ -134,7 +137,7 @@ class LocalFS:
         req = cmd_FILE_WRITE_Schema().load(req)
         path = req['path']
         self.local_user_manifest.check_path(path, should_exists=True, type='file')
-        obj = self.local_user_manifest.retrieve_file(path)
+        obj = self.local_user_manifest.retrieve_path(path)
         key = from_jsonb64(obj['key'])
         file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
         if not file:
@@ -147,7 +150,7 @@ class LocalFS:
         req = cmd_FILE_TRUNCATE_Schema().load(req)
         path = req['path']
         self.local_user_manifest.check_path(path, should_exists=True, type='file')
-        obj = self.local_user_manifest.retrieve_file(path)
+        obj = self.local_user_manifest.retrieve_path(path)
         key = from_jsonb64(obj['key'])
         file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
         if not file:
