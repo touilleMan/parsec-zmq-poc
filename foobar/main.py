@@ -5,7 +5,7 @@ from nacl.public import PrivateKey
 
 from .config import CONFIG
 from .utils import CookedSocket, BaseCmdSchema, ParsecError
-from .fs import FSPipeline
+from .local_fs import LocalFS
 
 
 class cmd_LOGIN_Schema(BaseCmdSchema):
@@ -58,7 +58,7 @@ class CoreApp:
     async def login(self, userid, rawprivkey):
         self.auth_user = userid
         self.auth_privkey = PrivateKey(rawprivkey)
-        self.fs = FSPipeline(self)
+        self.fs = LocalFS(self.auth_user, self.auth_privkey)
         await self.fs.init()
 
     async def logout(self):

@@ -1,5 +1,9 @@
 import attr
+import json
 import trio
+import pendulum
+from nacl.public import PrivateKey
+from nacl.secret import SecretBox
 
 
 class FileManager:
@@ -11,20 +15,29 @@ class FileManager:
     async def get_file(self, id, rts, wts, key):
         file = self._files.get(id)
         if not file:
-            raw = self.local_storage.get_file_manifest(id)
-            if raw:
-                file = DirtyFile.load(raw, key)
+            ciphered_data = self.local_storage.get_file_manifest(id)
+            if ciphered_data:
+                file = LocalFile.load(self, id, rts, wts, key, ciphered_data)
                 self._files[id] = file
             else:
                 # TODO: handle cache miss with async request to backend
                 return None
         return file
 
-    def get_placeholder_file(self, id):
-        pass
+    def get_placeholder_file(self, id, key):
+        file = self._files.get(id)
+        if not file:
+            ciphered_data = self.local_storage.get_placeholder_file_manifest(id)
+            if ciphered_data:
+                file = PlaceHolderFile.load(self, id, key, ciphered_data)
+                self._files[id] = file
+            else:
+                # TODO: handle cache miss with async request to backend
+                return None
+        return file
 
 
-class BaseDirtyFile:
+class BaseLocalFile:
     def __init__(self, file_manager):
         self.file_manager = file_manager
         self.patches = []
@@ -52,25 +65,92 @@ class BaseDirtyFile:
         raise NotImplementedError()
 
 
-class DirtyFile(BaseDirtyFile):
-    def __init__(self, file_manager, id, rts, wts, key, data):
-        super().__init__(file_manager)
-        self.data = data
-        self.is_ready = trio.Event()
-        self.id = id
-        self.rts = rts
-        self.wts = wts
-        self.key = key
+@attr.s
+class LocalFile(BaseLocalFile):
+    file_manager = attr.ib()
+    id = attr.ib()
+    rts = attr.ib()
+    wts = attr.ib()
+    box = attr.ib()
+    data = attr.ib()
+    is_ready = attr.ib(default=attr.Factory(trio.Event))
+
+    @property
+    def created(self):
+        return self.data['created']
+
+    @property
+    def updated(self):
+        return self.data['updated']
+
+    @property
+    def version(self):
+        return self.data['version']
+
+    @property
+    def size(self):
+        return self.data['size']
+
+    @property
+    def is_dirty(self):
+        return self.data.get('is_dirty', False)
 
     @classmethod
-    def load(cls, data, key):
-        pass
+    def load(cls, file_manager, id, rts, wts, key, ciphered_data):
+        box = SecretBox(key)
+        data = json.loads(box.decrypt(ciphered_data).decode())
+        return cls(file_manager, id, rts, wts, box, data)
+
+    def dump(self):
+        return self.box.encrypt(json.dumps(self.data).encode())
 
     def sync(self):
-        self.file_manager.local_storage.save_dirty_file_manifest(self.id, )
+        self.file_manager.local_storage.save_dirty_file_manifest(self.id, ciphered_data)
 
 
-class PlaceHolderFile(BaseDirtyFile):
-    def __init__(self, file_manager, data):
-        super().__init__(file_manager)
-        self.data = data
+class PlaceHolderFile(BaseLocalFile):
+    file_manager = attr.ib()
+    id = attr.ib()
+    box = attr.ib()
+    data = attr.ib()
+
+    @data.default
+    def _default_data():
+        now = pendulum.now().isoformat()
+        return {
+            'created': now,
+            'updated': now,
+            'version': 0,
+            'size': 0,
+            'blocks': [],
+            'placeholder_blocks': []
+        }
+
+    @property
+    def created(self):
+        return self.data['created']
+
+    @property
+    def updated(self):
+        return self.data['updated']
+
+    @property
+    def version(self):
+        return self.data['version']
+
+    @property
+    def size(self):
+        return self.data['size']
+
+    @property
+    def is_dirty(self):
+        return True
+
+    @classmethod
+    def load(cls, file_manager, id, key, ciphered_data):
+        box = SecretBox(key)
+        data = json.loads(box.decrypt(ciphered_data).decode())
+        return cls(file_manager, id, box, data)
+
+    def dump(self):
+        return self.box.encrypt(json.dumps(self.data).encode())

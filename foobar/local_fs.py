@@ -3,7 +3,7 @@ import json
 import pendulum
 from uuid import uuid4
 from marshmallow import fields, validate
-from nacl.public import Box, PrivateKey
+from nacl.public import Box
 from nacl.secret import SecretBox
 import nacl.utils
 
@@ -84,7 +84,7 @@ class cmd_UNDELETE_Schema(BaseCmdSchema):
 class LocalFS:
     def __init__(self, authid, auth_privkey):
         self.authid = authid
-        self.auth_privkey = PrivateKey(auth_privkey)
+        self.auth_privkey = auth_privkey
         self.local_storage = LocalStorage()
         self.backend_conn = BackendConnection()
         self.local_user_manifest = None
@@ -105,7 +105,7 @@ class LocalFS:
     async def _cmd_FILE_CREATE(self, req):
         req = PathOnlySchema().load(req)
         path = req['path']
-        self.user_manifest_svc.check_path(path, should_exists=False)
+        self.local_user_manifest.check_path(path, should_exists=False)
         now = pendulum.now().isoformat()
         file_manifest = {
             'version': 1,
@@ -143,31 +143,55 @@ class LocalFS:
     async def _cmd_STAT(self, req):
         req = PathOnlySchema().load(req)
         path = req['path']
-        self.user_manifest_svc.check_path(path, should_exists=True)
-        obj = self.user_manifest_svc.retrieve_path(path)
+        self.local_user_manifest.check_path(path, should_exists=True)
+        obj = self.local_user_manifest.retrieve_path(path)
         if obj['type'] == 'folder':
-            return {'status': 'ok', 'type': obj['type'], 'children': list(sorted(obj['children'].keys()))}
-        else:
+            return {
+                'status': 'ok',
+                'type': 'folder',
+                'created': obj['created'],
+                'children': list(sorted(obj['children'].keys()))
+            }
+        elif obj['type'] == 'file':
             key = from_jsonb64(obj['key'])
-            file = await self.file_svc.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
+            file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
             if not file:
                 # Data not in local and backend is offline
                 abort('unavailable_resource')
             return {
                 'status': 'ok',
                 'type': 'file',
-                'created': file.file_manifest['created'],
-                'updated': file.file_manifest['updated'],
-                'version': file.file_manifest['version'],
-                'size': file.file_manifest['size'],
+                'created': file.created,
+                'updated': file.updated,
+                'version': file.version,
+                'is_dirty': file.is_dirty,
+                'is_placeholder': False,
+                'size': file.size
+            }
+        else:  # placeholder file
+            key = from_jsonb64(obj['key'])
+            file = await self.files_manager.get_placeholder_file(obj['id'], key)
+            if not file:
+                # Data not in local and backend is offline, should never
+                # happened with placeholder !
+                abort('unavailable_resource')
+            return {
+                'status': 'ok',
+                'type': 'file',
+                'created': file.created,
+                'updated': file.updated,
+                'version': file.version,
+                'is_dirty': True,
+                'is_placeholder': True,
+                'size': file.size
             }
 
     async def _cmd_FOLDER_CREATE(self, req):
         req = PathOnlySchema().load(req)
         path = req['path']
-        self.user_manifest_svc.check_path(path, should_exists=False)
+        self.local_user_manifest.check_path(path, should_exists=False)
         dirpath, name = path.rsplit('/', 1)
-        dirobj = self.user_manifest_svc.retrieve_path(dirpath)
+        dirobj = self.local_user_manifest.retrieve_path(dirpath)
         now = pendulum.now().isoformat()
         dirobj['children'][name] = {
             'type': 'folder', 'children': {}, 'stat': {'created': now, 'updated': now}}
@@ -178,14 +202,14 @@ class LocalFS:
         src = req['src']
         dst = req['dst']
 
-        self.user_manifest_svc.check_path(src, should_exists=True)
-        self.user_manifest_svc.check_path(dst, should_exists=False)
+        self.local_user_manifest.check_path(src, should_exists=True)
+        self.local_user_manifest.check_path(dst, should_exists=False)
 
         srcdirpath, scrfilename = src.rsplit('/', 1)
         dstdirpath, dstfilename = dst.rsplit('/', 1)
 
-        srcobj = self.user_manifest_svc.retrieve_path(srcdirpath)
-        dstobj = self.user_manifest_svc.retrieve_path(dstdirpath)
+        srcobj = self.local_user_manifest.retrieve_path(srcdirpath)
+        dstobj = self.local_user_manifest.retrieve_path(dstdirpath)
         dstobj['children'][dstfilename] = srcobj['children'][scrfilename]
         del srcobj['children'][scrfilename]
         return {'status': 'ok'}
@@ -193,9 +217,9 @@ class LocalFS:
     async def _cmd_DELETE(self, req):
         req = PathOnlySchema().load(req)
         path = req['path']
-        self.user_manifest_svc.check_path(path, should_exists=True)
+        self.local_user_manifest.check_path(path, should_exists=True)
         dirpath, leafname = path.rsplit('/', 1)
-        obj = self.user_manifest_svc.retrieve_path(dirpath)
+        obj = self.local_user_manifest.retrieve_path(dirpath)
         del obj['children'][leafname]
         return {'status': 'ok'}
 
