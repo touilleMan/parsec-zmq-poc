@@ -16,9 +16,6 @@ from .backend_connection import BackendConnection
 from .utils import BaseCmdSchema, from_jsonb64, to_jsonb64, abort, ParsecError
 
 
-class InvalidPath(ParsecError):
-    status = 'invalid_path'
-
 
 class PathOnlySchema(BaseCmdSchema):
     path = fields.String(required=True)
@@ -122,11 +119,41 @@ class LocalFS:
 
     async def _cmd_FILE_READ(self, req):
         req = cmd_FILE_READ_Schema().load(req)
-        return {'status': 'ok'}
+        path = req['path']
+        self.local_user_manifest.check_path(path, should_exists=True, type='file')
+        obj = self.local_user_manifest.retrieve_file(path)
+        key = from_jsonb64(obj['key'])
+        file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
+        if not file:
+            # Data not in local and backend is offline
+            abort('unavailable_resource')
+        content = await file.read(req['size'], req['offset'])
+        return {'status': 'ok', 'content': content}
 
     async def _cmd_FILE_WRITE(self, req):
         req = cmd_FILE_WRITE_Schema().load(req)
-        # TODO: sync file
+        path = req['path']
+        self.local_user_manifest.check_path(path, should_exists=True, type='file')
+        obj = self.local_user_manifest.retrieve_file(path)
+        key = from_jsonb64(obj['key'])
+        file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
+        if not file:
+            # Data not in local and backend is offline
+            abort('unavailable_resource')
+        file.write(req['content'], req['offset'])
+        return {'status': 'ok'}
+
+    async def _cmd_FILE_TRUNCATE(self, req):
+        req = cmd_FILE_TRUNCATE_Schema().load(req)
+        path = req['path']
+        self.local_user_manifest.check_path(path, should_exists=True, type='file')
+        obj = self.local_user_manifest.retrieve_file(path)
+        key = from_jsonb64(obj['key'])
+        file = await self.files_manager.get_file(obj['id'], obj['read_trust_seed'], obj['write_trust_seed'], key)
+        if not file:
+            # Data not in local and backend is offline
+            abort('unavailable_resource')
+        file.truncate(req['length'])
         return {'status': 'ok'}
 
     async def _cmd_STAT(self, req):
@@ -213,11 +240,6 @@ class LocalFS:
         obj = self.local_user_manifest.retrieve_path(dirpath)
         del obj['children'][leafname]
         self._sync_local_user_manifest()
-        return {'status': 'ok'}
-
-    async def _cmd_FILE_TRUNCATE(self, req):
-        req = cmd_FILE_TRUNCATE_Schema().load(req)
-        # TODO: sync file
         return {'status': 'ok'}
 
     async def _cmd_SYNCHRONISE(self, req):
