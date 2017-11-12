@@ -31,7 +31,6 @@ class Bdb:
             return filename
         canonic = self.fncache.get(filename)
         if not canonic:
-            print('===> %r %r' %(os.path, os))
             canonic = os.path.abspath(filename)
             canonic = os.path.normcase(canonic)
             self.fncache[filename] = canonic
