@@ -77,7 +77,7 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
     # /dir/modified.txt - Dirty file manifest
 
     modified_txt_dirty_fm = {
-        'base_version': 2,
+        'version': 2,
         'created': '2017-12-02T12:50:30+00:00',
         'updated': '2017-12-02T12:51:00+00:00',
         'blocks': [
@@ -108,7 +108,7 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
     new_txt_placeholder_id = '3ca6cb2ba8a9446f8508296b7a8c3ed4'
     new_txt_placeholder_key = b'"\x08"Q\xfbc\xa3 \xf9\xde\xbf\xc3\x07?\x9a\xa6V\xcet\x0c\xa1C\xf2\xa06\xa1\xc9 \xbf\xf6t\xbb'
     new_txt_placeholder_fm = {
-        'base_version': 2,
+        'version': 0,
         'created': '2017-12-02T12:50:30+00:00',
         'updated': '2017-12-02T12:51:00+00:00',
         'blocks': [

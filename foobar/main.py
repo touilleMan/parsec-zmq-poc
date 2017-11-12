@@ -2,6 +2,7 @@ import attr
 import trio
 from marshmallow import fields
 from nacl.public import PrivateKey
+from urllib.parse import urlparse
 
 from .config import CONFIG
 from .utils import CookedSocket, BaseCmdSchema, ParsecError
@@ -15,13 +16,19 @@ class cmd_LOGIN_Schema(BaseCmdSchema):
 
 class CoreApp:
 
-    def __init__(self, config=None):
-        self.config = CONFIG.copy()
-        if config:
-            self.config.update(config)
+    def __init__(self, config):
+        self.config = config
         self.server_ready = trio.Event()
-        self.host = self.config['HOST']
-        self.port = self.config['PORT']
+        addr = self.config['ADDR']
+        if addr.startswith('unix://'):
+            self.socket_type = trio.socket.AF_UNIX
+            self.socket_bind_opts = addr[len('unix://'):]
+        elif addr.startswith('tcp://'):
+            self.socket_type = trio.socket.AF_INET
+            parsed = urlparse(addr)
+            self.socket_bind_opts = (parsed.hostname, parsed.port)
+        else:
+            raise RuntimeError('Invalid ADDR value `%s`' % addr)
         self.auth_user = None
         self.auth_privkey = None
         self.fs = None
@@ -34,17 +41,20 @@ class CoreApp:
         while True:
             req = await sock.recv()
             if not req:  # Client disconnected
+                print('CLIENT DISCONNECTED')
                 return
+            print('REQ %s' % req)
             cmd_func = getattr(self, '_cmd_%s' % req['cmd'].upper())
             try:
                 rep = await cmd_func(req)
             except ParsecError as err:
                 rep = err.to_dict()
+            print('REP %s' % rep)
             await sock.send(rep)
 
     async def _wait_clients(self, nursery):
-        with trio.socket.socket() as listen_sock:
-            listen_sock.bind((self.host, self.port))
+        with trio.socket.socket(self.socket_type) as listen_sock:
+            listen_sock.bind(self.socket_bind_opts)
             listen_sock.listen()
             self.server_ready.set()
             while True:

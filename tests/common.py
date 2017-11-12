@@ -31,7 +31,6 @@ class User:
 
 
 for userid, userkey in TEST_USERS.items():
-    print('load', userid)
     locals()[userid.split('@')[0]] = User(userid, PrivateKey(userkey))
 
 
@@ -71,7 +70,7 @@ class ConnectToCore:
             if self.core.auth_user:
                 await self.core.logout()
             await self.core.login(self.auth_as, privkey)
-        await self.sock.connect((self.core.host, self.core.port))
+        await self.sock.connect(self.core.socket_bind_opts)
         cookedsock = CookedSocket(self.sock)
         return cookedsock
 
@@ -144,7 +143,7 @@ def mocked_local_storage_cls_factory():
 
 def with_core(config=None, mocked_local_storage=True):
     config = config or {}
-    config['PORT'] = _get_unused_port()
+    config['ADDR'] = 'tcp://127.0.0.1:%s' % _get_unused_port()
 
     def decorator(testfunc):
         # @wraps(testfunc)
@@ -165,8 +164,8 @@ def with_core(config=None, mocked_local_storage=True):
                 nursery.start_soon(core.run)
                 with trio.move_on_after(1) as cancel_scope:
                     await core.server_ready.wait()
-                if not cancel_scope.cancelled_caught:
-                    nursery.start_soon(run_test_and_cancel_scope, nursery)
+                assert not cancel_scope.cancelled_caught, 'Core starting timeout...'
+                nursery.start_soon(run_test_and_cancel_scope, nursery)
         return wrapper
     return decorator
 

@@ -1,5 +1,4 @@
 import attr
-import pickle
 import base64
 import json
 from functools import partial
@@ -15,7 +14,7 @@ class CookedSocket:
     rawsocket = attr.ib()
 
     async def send(self, msg):
-        await self.rawsocket.sendall(pickle.dumps(msg))
+        await self.rawsocket.sendall(json.dumps(msg).encode() + b'\n')
 
     async def recv(self):
         raw = b''
@@ -23,7 +22,9 @@ class CookedSocket:
         raw = await self.rawsocket.recv(BUFFSIZE)
         if not raw:
             return None
-        return pickle.loads(raw)
+        while raw[-1] != ord(b'\n'):
+            raw += self.rawsocket.recv(BUFFSIZE)
+        return json.loads(raw[:-1].decode())
 
 
 def to_jsonb64(raw: bytes):

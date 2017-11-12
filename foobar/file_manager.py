@@ -203,7 +203,7 @@ class LocalFile(PatchedLocalFileFixture, BaseLocalFile):
 
     @property
     def is_dirty(self):
-        return self.data.get('is_dirty', False)
+        return bool(self.data.get('dirty_blocks'))
 
     @classmethod
     def load(cls, file_manager, id, rts, wts, key, ciphered_data):
