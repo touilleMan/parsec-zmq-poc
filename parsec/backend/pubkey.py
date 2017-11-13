@@ -4,7 +4,7 @@ from marshmallow import fields
 from nacl.public import PublicKey
 from nacl.signing import VerifyKey
 
-from parsec.core.utils import UnknownCheckedSchema, ParsecError, to_jsonb64
+from parsec.utils import UnknownCheckedSchema, ParsecError, to_jsonb64
 
 
 class PubKeyError(ParsecError):

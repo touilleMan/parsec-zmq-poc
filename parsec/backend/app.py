@@ -7,7 +7,7 @@ from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 from urllib.parse import urlparse
 
-from parsec.core.utils import CookedSocket, BaseCmdSchema, ParsecError, to_jsonb64, from_jsonb64
+from parsec.utils import CookedSocket, BaseCmdSchema, ParsecError, to_jsonb64, from_jsonb64
 from parsec.backend.pubkey import MockedPubKeyComponent
 from parsec.backend.vlob import MockedVlobComponent
 from parsec.backend.user_vlob import MockedUserVlobComponent
@@ -87,7 +87,6 @@ class BackendApp:
             await sock.send({'status': 'bad_identity'})
             return
         try:
-            print('check %r => %r' % (challenge, from_jsonb64(hds2['answer'])))
             returned_challenge = VerifyKey(rawkeys[1]).verify(from_jsonb64(hds2['answer']))
             if returned_challenge != challenge:
                 raise BadSignatureError()

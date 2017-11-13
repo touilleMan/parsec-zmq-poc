@@ -8,7 +8,7 @@ from nacl.public import PrivateKey
 from nacl.signing import SigningKey
 
 from parsec.core.app import CoreApp
-from parsec.core.utils import CookedSocket, to_jsonb64, from_jsonb64, User
+from parsec.utils import CookedSocket, to_jsonb64, from_jsonb64, User
 from parsec.core.local_storage import BaseLocalStorage
 from parsec.backend.app import BackendApp
 

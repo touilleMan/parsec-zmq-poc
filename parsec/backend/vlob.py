@@ -4,7 +4,7 @@ import string
 from uuid import uuid4
 from marshmallow import fields
 
-from parsec.core.utils import UnknownCheckedSchema, to_jsonb64, ParsecError
+from parsec.utils import UnknownCheckedSchema, to_jsonb64, ParsecError
 
 
 TRUST_SEED_LENGTH = 12

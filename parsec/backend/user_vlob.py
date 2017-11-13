@@ -2,7 +2,7 @@ import attr
 from collections import defaultdict
 from marshmallow import fields
 
-from parsec.core.utils import UnknownCheckedSchema, to_jsonb64, ParsecError
+from parsec.utils import UnknownCheckedSchema, to_jsonb64, ParsecError
 
 
 class UserVlobError(ParsecError):

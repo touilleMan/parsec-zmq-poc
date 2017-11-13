@@ -4,7 +4,7 @@ from unittest.mock import Mock
 from nacl.secret import SecretBox
 
 from parsec.core.file_manager import PlaceHolderFile, _merge_patches, _try_merge_two_patches, Patch
-from parsec.core.utils import to_jsonb64
+from parsec.utils import to_jsonb64
 
 from tests.common import mocked_local_storage_cls_factory
 

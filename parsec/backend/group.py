@@ -1,7 +1,7 @@
 import attr
 from marshmallow import fields
 
-from parsec.core.utils import UnknownCheckedSchema, ParsecError
+from parsec.utils import UnknownCheckedSchema, ParsecError
 
 
 class GroupError(ParsecError):
