@@ -69,7 +69,6 @@ class BaseVlobComponent:
 
     async def api_vlob_create(self, client_ctx, msg):
         msg = cmd_CREATE_Schema().load(msg)
-        msg.pop('cmd')
         atom = await self.create(**msg)
         return {
             'status': 'ok',
@@ -80,7 +79,6 @@ class BaseVlobComponent:
 
     async def api_vlob_read(self, client_ctx, msg):
         msg = cmd_READ_Schema().load(msg)
-        msg.pop('cmd')
         atom = await self.read(**msg)
         return {
             'status': 'ok',
@@ -91,7 +89,6 @@ class BaseVlobComponent:
 
     async def api_vlob_update(self, client_ctx, msg):
         msg = cmd_UPDATE_Schema().load(msg)
-        msg.pop('cmd')
         await self.update(**msg)
         return {'status': 'ok'}
 

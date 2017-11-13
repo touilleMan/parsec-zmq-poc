@@ -29,7 +29,6 @@ class cmd_UPDATE_Schema(UnknownCheckedSchema):
 class BaseUserVlobComponent:
     async def api_user_vlob_read(self, client_ctx, msg):
         msg = cmd_READ_Schema().load(msg)
-        msg.pop('cmd')
         atom = await self.read(client_ctx.id, **msg)
         return {
             'status': 'ok',
@@ -39,7 +38,6 @@ class BaseUserVlobComponent:
 
     async def api_user_vlob_update(self, client_ctx, msg):
         msg = cmd_UPDATE_Schema().load(msg)
-        msg.pop('cmd')
         await self.update(client_ctx.id, **msg)
         return {'status': 'ok'}
 

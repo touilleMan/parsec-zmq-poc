@@ -11,6 +11,8 @@ from parsec.core.utils import CookedSocket, BaseCmdSchema, ParsecError, to_jsonb
 from parsec.backend.pubkey import MockedPubKeyComponent
 from parsec.backend.vlob import MockedVlobComponent
 from parsec.backend.user_vlob import MockedUserVlobComponent
+from parsec.backend.group import MockedGroupComponent
+from parsec.backend.message import InMemoryMessageComponent
 
 
 class cmd_LOGIN_Schema(BaseCmdSchema):
@@ -37,10 +39,11 @@ class BackendApp:
         self.host = config['HOST']
         self.port = int(config['PORT'])
         self.nursery = None
-        self.pubkey = MockedPubKeyComponent()
         self.vlob = MockedVlobComponent()
         self.user_vlob = MockedUserVlobComponent()
         self.pubkey = MockedPubKeyComponent()
+        self.message = InMemoryMessageComponent()
+        self.group = MockedGroupComponent()
 
         self.cmds = {
             # 'subscribe_event': self.api_subscribe_event,
@@ -55,13 +58,13 @@ class BackendApp:
             'user_vlob_read': self.user_vlob.api_user_vlob_read,
             'user_vlob_update': self.user_vlob.api_user_vlob_update,
 
-            # 'group_read': self.group.api_group_read,
-            # 'group_create': self.group.api_group_create,
-            # 'group_add_identities': self.group.api_group_add_identities,
-            # 'group_remove_identities': self.group.api_group_remove_identities,
+            'group_read': self.group.api_group_read,
+            'group_create': self.group.api_group_create,
+            'group_add_identities': self.group.api_group_add_identities,
+            'group_remove_identities': self.group.api_group_remove_identities,
 
-            # 'message_get': self.message.api_message_get,
-            # 'message_new': self.message.api_message_new,
+            'message_get': self.message.api_message_get,
+            'message_new': self.message.api_message_new,
 
             'pubkey_get': self.pubkey.api_pubkey_get,
 
