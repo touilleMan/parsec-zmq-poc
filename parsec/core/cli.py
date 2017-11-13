@@ -6,7 +6,7 @@ from .config import CONFIG
 
 
 JOHN_DOE_IDENTITY = 'johndoe@test'
-JOHN_DOE_PRIVATE_KEY = b'\xb8\xdd\xf4\x97\xe8\xb5/\x9c\x99\x83hO\x1e$\xf2q\x17<4l<`)eI\xe9\xba3\x1a*\x8bU'
+JOHN_DOE_PRIVATE_KEY = b']x\xd3\xa9$S\xa92\x9ex\x91\xa7\xee\x04SY\xbe\xe6\x03\xf0\x1d\xe2\xcc7\x8a\xd7L\x137\x9e\xa7\xc6'
 DEFAULT_CORE_UNIX_SOCKET = 'tcp://127.0.0.1:6776'
 
 
@@ -42,7 +42,7 @@ def run_with_pdb(cmd, *args, **kwargs):
 @click.option('--socket', '-s', default=DEFAULT_CORE_UNIX_SOCKET,
               help='Path to the UNIX socket exposing the core API (default: %s).' %
               DEFAULT_CORE_UNIX_SOCKET)
-@click.option('--backend-host', '-H', default='ws://127.0.0.1:6777')
+@click.option('--backend-host', '-H', default='tcp://127.0.0.1:6777')
 @click.option('--backend-watchdog', '-W', type=click.INT, default=None)
 @click.option('--debug', '-d', is_flag=True)
 @click.option('--pdb', is_flag=True)
@@ -81,7 +81,8 @@ def _core(socket, backend_host, backend_watchdog, debug, i_am_john):
             nursery.start_soon(core.run)
             nursery.start_soon(_login_on_ready)
 
-    print('Starting Parsec Core on %s' % config['ADDR'])
+    print('Starting Parsec Core on %s (with backend on %s)' %
+        (config['ADDR'], config['BACKEND_ADDR']))
     try:
         if i_am_john:
             # TODO: well well well...

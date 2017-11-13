@@ -2,7 +2,7 @@ import trio
 from urllib.parse import urlparse
 from nacl.signing import SigningKey
 
-from .utils import to_jsonb64, CookedSocket
+from .utils import from_jsonb64, to_jsonb64, CookedSocket
 
 
 class BackendConnection:
@@ -32,17 +32,16 @@ class BackendConnection:
     async def _backend_connection(self):
         with trio.socket.socket() as sock:
             await sock.connect((self.addr.hostname, self.addr.port))
-            import pdb; pdb.set_trace()
             sock = CookedSocket(sock)
             # Handshake
             hds1 = await sock.recv()
-            assert hds1['handshake'] == 'challenge'
+            assert hds1['handshake'] == 'challenge', hds1
             k = SigningKey(self.auth_privkey.encode())
-            answer = k.sign(hds1['challenge'].encode())
+            answer = k.sign(from_jsonb64(hds1['challenge']))
             hds2 = {'handshake': 'answer', 'identity': self.authid, 'answer': to_jsonb64(answer)}
             await sock.send(hds2)
             hds3 = await sock.recv()
-            assert hds3 == {'status': 'ok', 'handshake': 'done'}
+            assert hds3 == {'status': 'ok', 'handshake': 'done'}, hds3
             # Regular communication
             while True:
                 # TODO: handle disconnection

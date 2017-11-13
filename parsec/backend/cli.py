@@ -5,7 +5,7 @@ from .app import BackendApp
 
 
 JOHN_DOE_IDENTITY = 'johndoe@test'
-JOHN_DOE_PUBLIC_KEY = b'\xc4\xd3A\xe3v\x0b\xc2\xfe\xa1\x9ar\x0ck\xac\xf2\xcb!\xdd\xefG:WR\xc3\xcd\x07\xb9\x14\x83u\xcf-'
+JOHN_DOE_PUBLIC_KEY = b'1\xbc29\xc9\xce"\xf1\xcex\xea"\x83k\x1d\xede\x81\xbfRc\rG\xde&\x82\xbc\x80rc\xaa\xe4'
 DEFAULT_CORE_UNIX_SOCKET = 'tcp://127.0.0.1:6776'
 
 
@@ -53,6 +53,7 @@ def backend_cmd(**kwargs):
     else:
         return _backend(**kwargs)
 
+
 def _backend(host, port, pubkeys, store, block_store, debug):
     config = {
         # **CONFIG,
@@ -62,11 +63,21 @@ def _backend(host, port, pubkeys, store, block_store, debug):
     }
     backend = BackendApp(config)
 
+    async def _run_and_register_johndoe():
+        async def _register_on_ready():
+            await backend.server_ready.wait()
+            await backend.pubkey.add(JOHN_DOE_IDENTITY, JOHN_DOE_PUBLIC_KEY)
+
+        async with trio.open_nursery() as nursery:
+            nursery.start_soon(backend.run)
+            nursery.start_soon(_register_on_ready)
+
     print('Starting Parsec Backend on %s:%s' % (host, port))
     try:
-        trio.run(backend.run)
+        trio.run(_run_and_register_johndoe)
     except KeyboardInterrupt:
         print('bye ;-)')
+
 
 
 
