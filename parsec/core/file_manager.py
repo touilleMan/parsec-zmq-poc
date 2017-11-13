@@ -7,7 +7,7 @@ from nacl.public import PrivateKey
 from nacl.secret import SecretBox
 import nacl.utils
 
-from foobar.utils import from_jsonb64, to_jsonb64
+from .utils import from_jsonb64, to_jsonb64
 
 
 def _generate_sym_key():

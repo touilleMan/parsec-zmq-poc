@@ -77,16 +77,16 @@ class cmd_UNDELETE_Schema(BaseCmdSchema):
 
 
 class LocalFS:
-    def __init__(self, authid, auth_privkey):
+    def __init__(self, authid, auth_privkey, backend_addr):
         self.authid = authid
         self.auth_privkey = auth_privkey
         self.local_storage = LocalStorage()
-        self.backend_conn = BackendConnection()
+        self.backend_conn = BackendConnection(authid, auth_privkey, backend_addr)
         self.local_user_manifest = None
         self.files_manager = FileManager(self.local_storage)
 
-    async def init(self):
-        await self.backend_conn.init()
+    async def init(self, nursery):
+        await self.backend_conn.init(nursery)
         ciphered = self.local_storage.get_local_user_manifest()
         if not ciphered:
             self.local_user_manifest = LocalUserManifest()

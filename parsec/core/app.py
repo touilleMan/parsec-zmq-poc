@@ -19,6 +19,7 @@ class CoreApp:
     def __init__(self, config):
         self.config = config
         self.server_ready = trio.Event()
+        self.backend_addr = config['BACKEND_ADDR']
         addr = self.config['ADDR']
         if addr.startswith('unix://'):
             self.socket_type = trio.socket.AF_UNIX
@@ -29,6 +30,7 @@ class CoreApp:
             self.socket_bind_opts = (parsed.hostname, parsed.port)
         else:
             raise RuntimeError('Invalid ADDR value `%s`' % addr)
+        self.nursery = None
         self.auth_user = None
         self.auth_privkey = None
         self.fs = None
@@ -62,14 +64,22 @@ class CoreApp:
                 nursery.start_soon(self._serve_client, server_sock)
 
     async def run(self):
-        async with trio.open_nursery() as nursery:
-            nursery.start_soon(self._wait_clients, nursery)
+        try:
+            async with trio.open_nursery() as self.nursery:
+                self.nursery.start_soon(self._wait_clients, self.nursery)
+        finally:
+            if self.socket_type == trio.socket.AF_UNIX:
+                try:
+                    import os
+                    os.remove(self.socket_bind_opts)
+                except FileNotFoundError:
+                    pass
 
     async def login(self, userid, rawprivkey):
         self.auth_user = userid
         self.auth_privkey = PrivateKey(rawprivkey)
-        self.fs = LocalFS(self.auth_user, self.auth_privkey)
-        await self.fs.init()
+        self.fs = LocalFS(self.auth_user, self.auth_privkey, self.backend_addr)
+        await self.fs.init(self.nursery)
 
     async def logout(self):
         await self.fs.teardown()
@@ -82,10 +92,10 @@ class CoreApp:
         if self.auth_user:
             return {'status': 'already_logged'}
         msg = cmd_LOGIN_Schema().load(req)
-        userkeys = self._get_user(msg['id'], msg['password'])
-        if not userkeys:
+        rawprivkey = self._get_user(msg['id'], msg['password'])
+        if not rawprivkey:
             return {'status': 'unknown_user'}
-        await self.login(msg['id'], userkeys)
+        await self.login(msg['id'], rawprivkey)
         return {'status': 'ok'}
 
     async def _cmd_IDENTITY_LOGOUT(self, req):

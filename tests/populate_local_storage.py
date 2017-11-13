@@ -2,7 +2,7 @@ import json
 from nacl.public import Box
 from nacl.secret import SecretBox
 
-from foobar.utils import to_jsonb64
+from parsec.core.utils import to_jsonb64
 
 
 def populate_local_storage_cls(user, mocked_local_storage_cls):

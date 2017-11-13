@@ -16,7 +16,7 @@ async def test_connection(core):
 
 
 @trio_test
-@async_patch('foobar.main.CoreApp._get_user')
+@async_patch('parsec.core.app.CoreApp._get_user')
 @with_core()
 async def test_login_and_logout(core, get_user_mock):
     # Return user's curve private key

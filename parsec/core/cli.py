@@ -1,7 +1,7 @@
 import trio
 import click
 
-from .main import CoreApp
+from .app import CoreApp
 from .config import CONFIG
 
 
@@ -38,16 +38,11 @@ def run_with_pdb(cmd, *args, **kwargs):
         print("Post mortem debugger finished.")
 
 
-@click.group()
-def cli():
-    pass
-
-
 @click.command()
 @click.option('--socket', '-s', default=DEFAULT_CORE_UNIX_SOCKET,
               help='Path to the UNIX socket exposing the core API (default: %s).' %
               DEFAULT_CORE_UNIX_SOCKET)
-@click.option('--backend-host', '-H', default='ws://localhost:6777')
+@click.option('--backend-host', '-H', default='ws://127.0.0.1:6777')
 @click.option('--backend-watchdog', '-W', type=click.INT, default=None)
 @click.option('--debug', '-d', is_flag=True)
 @click.option('--pdb', is_flag=True)
@@ -55,15 +50,16 @@ def cli():
 # @click.option('--identity-key', '-I', type=click.File('rb'), default=None)
 @click.option('--I-am-John', is_flag=True, help='Log as dummy John Doe user')
 # @click.option('--cache-size', help='Max number of elements in cache', default=1000)
-def core(**kwargs):
+def core_cmd(**kwargs):
     if kwargs.pop('pdb'):
         return run_with_pdb(_core, **kwargs)
     else:
         return _core(**kwargs)
 
+
 def _core(socket, backend_host, backend_watchdog, debug, i_am_john):
     # TODO: so far LocalStorage is not implemented, so use the testing mock...
-    from foobar import local_fs
+    from . import local_fs
     from tests.common import mocked_local_storage_cls_factory
     local_fs.LocalStorage = mocked_local_storage_cls_factory()
     config = {
@@ -74,6 +70,7 @@ def _core(socket, backend_host, backend_watchdog, debug, i_am_john):
         'ADDR': socket
     }
     core = CoreApp(config)
+
     async def _run_and_login(identity, rawkey):
         async def _login_on_ready():
             await core.server_ready.wait()
@@ -98,10 +95,3 @@ def _core(socket, backend_host, backend_watchdog, debug, i_am_john):
             trio.run(core.run)
     except KeyboardInterrupt:
         print('bye ;-)')
-
-
-cli.add_command(core)
-
-
-if __name__ == '__main__':
-    cli()

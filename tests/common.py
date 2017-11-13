@@ -6,9 +6,9 @@ from unittest.mock import Mock, patch
 from functools import wraps
 from nacl.public import PrivateKey
 
-from foobar.main import CoreApp
-from foobar.utils import CookedSocket
-from foobar.local_storage import BaseLocalStorage
+from parsec.core.app import CoreApp
+from parsec.core.utils import CookedSocket
+from parsec.core.local_storage import BaseLocalStorage
 
 from tests.populate_local_storage import populate_local_storage_cls
 
@@ -144,8 +144,20 @@ def mocked_local_storage_cls_factory():
 def with_core(config=None, mocked_local_storage=True):
     config = config or {}
     config['ADDR'] = 'tcp://127.0.0.1:%s' % _get_unused_port()
+    config['BACKEND_ADDR'] = 'tcp://127.0.0.1:%s' % _get_unused_port()
+
+
+    # Backend connection not supported yet
+    class MockedBackendConnection:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def init(self, *args, **kwargs):
+            pass
+        async def teardown(self, *args, **kwargs):
+            pass
 
     def decorator(testfunc):
+
         # @wraps(testfunc)
         async def wrapper(*args, **kwargs):
             core = CoreAppTesting(config)
@@ -154,8 +166,9 @@ def with_core(config=None, mocked_local_storage=True):
                 if mocked_local_storage:
                     mocked_local_storage_cls = mocked_local_storage_cls_factory()
                     core.mocked_local_storage_cls = mocked_local_storage_cls
-                    with patch('foobar.local_fs.LocalStorage', mocked_local_storage_cls):
-                        await testfunc(core, *args, **kwargs)
+                    with patch('parsec.core.local_fs.BackendConnection', MockedBackendConnection):
+                        with patch('parsec.core.local_fs.LocalStorage', mocked_local_storage_cls):
+                            await testfunc(core, *args, **kwargs)
                 else:
                     await testfunc(core, *args, **kwargs)
                 nursery.cancel_scope.cancel()
