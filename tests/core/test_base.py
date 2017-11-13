@@ -20,8 +20,10 @@ async def test_connection(core):
 @with_core()
 async def test_login_and_logout(core, get_user_mock):
     # Return user's curve private key
-    get_user_mock.return_value = (b"\xf2O}\x1f\xc7\xaeZ\xed_\xd3yT\xa4\xea'\xe3"
-                                  b"\x9dx\xfd\x8a\x16\xc0G\xbeA(\xad\x93z\xdf\xc7[")
+    get_user_mock.return_value = (
+        b'\xfcv\xd8t\xac6\xb6&\xab\xf6\xd7\xb1\x1b{:fQ\x86\xcf\x87$\t}\xc6%\x90D\xc1g\xc9|\xf9',
+        b'\x16\x0c\x02Nz\xce}\xff\xbf\xc4W\xf7\x16\xa2j\xc7\xb1\x06[#v\x81AR\xe9\xdc\xe4m\x93Y\xcc\xb2'
+    )
     async with core.test_connect() as sock:
         await sock.send({'cmd': 'identity_info'})
         rep = await sock.recv()

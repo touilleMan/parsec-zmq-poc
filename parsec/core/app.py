@@ -5,7 +5,7 @@ from nacl.public import PrivateKey
 from urllib.parse import urlparse
 
 from .config import CONFIG
-from .utils import CookedSocket, BaseCmdSchema, ParsecError
+from .utils import CookedSocket, BaseCmdSchema, ParsecError, User
 from .local_fs import LocalFS
 
 
@@ -75,15 +75,14 @@ class CoreApp:
                 except FileNotFoundError:
                     pass
 
-    async def login(self, userid, rawprivkey):
-        self.auth_user = userid
-        self.auth_privkey = PrivateKey(rawprivkey)
-        self.fs = LocalFS(self.auth_user, self.auth_privkey, self.backend_addr)
+    async def login(self, user):
+        self.auth_user = user
+        self.fs = LocalFS(self.auth_user, self.backend_addr)
         await self.fs.init(self.nursery)
 
     async def logout(self):
         await self.fs.teardown()
-        self.auth_user = self.auth_privkey = None
+        self.auth_user = None
 
     async def _cmd_REGISTER(self, req):
         return {'status': 'not_implemented'}
@@ -92,10 +91,10 @@ class CoreApp:
         if self.auth_user:
             return {'status': 'already_logged'}
         msg = cmd_LOGIN_Schema().load(req)
-        rawprivkey = self._get_user(msg['id'], msg['password'])
-        if not rawprivkey:
+        rawkeys = self._get_user(msg['id'], msg['password'])
+        if not rawkeys:
             return {'status': 'unknown_user'}
-        await self.login(msg['id'], rawprivkey)
+        await self.login(User(msg['id'], *rawkeys))
         return {'status': 'ok'}
 
     async def _cmd_IDENTITY_LOGOUT(self, req):
@@ -105,7 +104,11 @@ class CoreApp:
         return {'status': 'ok'}
 
     async def _cmd_IDENTITY_INFO(self, req):
-        return {'status': 'ok', 'loaded': bool(self.auth_user), 'id': self.auth_user}
+        return {
+            'status': 'ok',
+            'loaded': bool(self.auth_user),
+            'id': self.auth_user.id if self.auth_user else None
+        }
 
     async def _cmd_GET_AVAILABLE_LOGINS(self, req):
         pass
@@ -157,30 +160,3 @@ class CoreApp:
         if not self.auth_user:
             return {'status': 'login_required'}
         return await self.fs._cmd_FILE_TRUNCATE(req)
-
-
-def main():
-    app = CoreApp()
-    trio.run(app.run)
-
-
-async def run_client():
-    with trio.socket.socket() as sock:
-        await sock.connect(('127.0.0.1', 9999))
-        while True:
-            sock = CookedSocket(sock)
-            req = {'msg': 'ping'}
-            print('client: =>', req)
-            await sock.send(req)
-            rep = await sock.recv()
-            print('client: <=', rep)
-            await trio.sleep(1)
-            return 42
-
-
-if __name__ == '__main__':
-    import sys
-    if sys.argv[1] == 'client':
-        raise SystemExit(trio.run(run_client))
-    else:
-        main()

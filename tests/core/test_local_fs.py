@@ -12,7 +12,7 @@ async def test_init_local_fs():
     mocked_local_storage_cls = mocked_local_storage_cls_factory()
     populate_local_storage_cls(alice, mocked_local_storage_cls)
     with patch('parsec.core.local_fs.LocalStorage', mocked_local_storage_cls):
-        fs = LocalFS(alice.id, alice.privkey, 'tcp://127.0.0.1:6777')
+        fs = LocalFS(alice, 'tcp://127.0.0.1:6777')
         await fs.init(Mock())
         assert isinstance(fs.local_user_manifest, LocalUserManifest)
         assert fs.local_user_manifest.is_dirty

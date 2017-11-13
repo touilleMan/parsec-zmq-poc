@@ -6,9 +6,8 @@ from .utils import from_jsonb64, to_jsonb64, CookedSocket
 
 
 class BackendConnection:
-    def __init__(self, authid, auth_privkey, addr):
-        self.authid = authid
-        self.auth_privkey = auth_privkey
+    def __init__(self, user, addr):
+        self.user = user
         self.addr = urlparse(addr)
         self.is_connected = False
         self.socket = None
@@ -36,9 +35,9 @@ class BackendConnection:
             # Handshake
             hds1 = await sock.recv()
             assert hds1['handshake'] == 'challenge', hds1
-            k = SigningKey(self.auth_privkey.encode())
+            k = SigningKey(self.user.privkey.encode())
             answer = k.sign(from_jsonb64(hds1['challenge']))
-            hds2 = {'handshake': 'answer', 'identity': self.authid, 'answer': to_jsonb64(answer)}
+            hds2 = {'handshake': 'answer', 'identity': self.user.id, 'answer': to_jsonb64(answer)}
             await sock.send(hds2)
             hds3 = await sock.recv()
             assert hds3 == {'status': 'ok', 'handshake': 'done'}, hds3

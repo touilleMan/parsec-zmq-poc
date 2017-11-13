@@ -77,11 +77,10 @@ class cmd_UNDELETE_Schema(BaseCmdSchema):
 
 
 class LocalFS:
-    def __init__(self, authid, auth_privkey, backend_addr):
-        self.authid = authid
-        self.auth_privkey = auth_privkey
+    def __init__(self, user, backend_addr):
+        self.user = user
         self.local_storage = LocalStorage()
-        self.backend_conn = BackendConnection(authid, auth_privkey, backend_addr)
+        self.backend_conn = BackendConnection(user, backend_addr)
         self.local_user_manifest = None
         self.files_manager = FileManager(self.local_storage)
 
@@ -92,13 +91,14 @@ class LocalFS:
             self.local_user_manifest = LocalUserManifest()
         else:
             self.local_user_manifest = decrypt_and_load_local_user_manifest(
-                self.auth_privkey, ciphered)
+                self.user.privkey, ciphered)
 
     async def teardown(self):
         await self.backend_conn.teardown()
 
     def _sync_local_user_manifest(self):
-        ciphered = dump_and_encrypt_local_user_manifest(self.auth_privkey, self.local_user_manifest)
+        ciphered = dump_and_encrypt_local_user_manifest(
+            self.user.privkey, self.local_user_manifest)
         self.local_storage.save_local_user_manifest(ciphered)
 
     async def _cmd_FILE_CREATE(self, req):

@@ -18,10 +18,15 @@ class cmd_LOGIN_Schema(BaseCmdSchema):
     password = fields.String(missing=None)
 
 
+class cmd_PING_Schema(BaseCmdSchema):
+    ping = fields.String(required=True)
+
+
 @attr.s
 class ClientContext:
     id = attr.ib()
     pubkey = attr.ib()
+    signkey = attr.ib()
 
 
 class BackendApp:
@@ -37,6 +42,36 @@ class BackendApp:
         self.user_vlob = MockedUserVlobComponent()
         self.pubkey = MockedPubKeyComponent()
 
+        self.cmds = {
+            # 'subscribe_event': self.api_subscribe_event,
+            # 'unsubscribe_event': self.api_unsubscribe_event,
+
+            # 'blockstore_get_url': self.api_blockstore_get_url,
+
+            'vlob_create': self.vlob.api_vlob_create,
+            'vlob_read': self.vlob.api_vlob_read,
+            'vlob_update': self.vlob.api_vlob_update,
+
+            'user_vlob_read': self.user_vlob.api_user_vlob_read,
+            'user_vlob_update': self.user_vlob.api_user_vlob_update,
+
+            # 'group_read': self.group.api_group_read,
+            # 'group_create': self.group.api_group_create,
+            # 'group_add_identities': self.group.api_group_add_identities,
+            # 'group_remove_identities': self.group.api_group_remove_identities,
+
+            # 'message_get': self.message.api_message_get,
+            # 'message_new': self.message.api_message_new,
+
+            'pubkey_get': self.pubkey.api_pubkey_get,
+
+            'ping': self._api_ping
+        }
+
+    async def _api_ping(self, client_ctx, msg):
+        msg = cmd_PING_Schema().load(msg)
+        return {'status': 'ok', 'pong': msg['ping']}
+
     async def _do_handshake(self, sock):
         challenge = nacl.utils.random(self.config.get('HANDSHAKE_CHALLENGE_SIZE', 48))
         hds1 = {'handshake': 'challenge', 'challenge': to_jsonb64(challenge)}
@@ -44,16 +79,17 @@ class BackendApp:
         hds2 = await sock.recv()
         # TODO: check response validity...
         claimed_identity = hds2['identity']
-        rawkey = await self.pubkey.get(claimed_identity)
-        if not rawkey:
+        rawkeys = await self.pubkey.get(claimed_identity)
+        if not rawkeys:
             await sock.send({'status': 'bad_identity'})
             return
         try:
-            returned_challenge = VerifyKey(rawkey).verify(from_jsonb64(hds2['answer']))
+            print('check %r => %r' % (challenge, from_jsonb64(hds2['answer'])))
+            returned_challenge = VerifyKey(rawkeys[1]).verify(from_jsonb64(hds2['answer']))
             if returned_challenge != challenge:
                 raise BadSignatureError()
             await sock.send({"status": "ok", "handshake": "done"})
-            return ClientContext(claimed_identity, rawkey)
+            return ClientContext(claimed_identity, *rawkeys)
         except BadSignatureError:
             await sock.send({'status': 'bad_identity'})
 
@@ -73,7 +109,8 @@ class BackendApp:
                     print('CLIENT DISCONNECTED')
                     break
                 print('REQ %s' % req)
-                cmd_func = getattr(self, '_cmd_%s' % req['cmd'].upper())
+                # TODO: handle bad msg
+                cmd_func = self.cmds[req.pop('cmd')]
                 try:
                     rep = await cmd_func(client_ctx, req)
                 except ParsecError as err:

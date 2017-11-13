@@ -5,33 +5,35 @@ from collections import defaultdict
 from unittest.mock import Mock, patch
 from functools import wraps
 from nacl.public import PrivateKey
+from nacl.signing import SigningKey
 
 from parsec.core.app import CoreApp
-from parsec.core.utils import CookedSocket
+from parsec.core.utils import CookedSocket, to_jsonb64, from_jsonb64, User
 from parsec.core.local_storage import BaseLocalStorage
+from parsec.backend.app import BackendApp
 
 from tests.populate_local_storage import populate_local_storage_cls
 
 
-TEST_USERS = {
-    'alice@test': b'\xb4A\x03`X\xb8\xae3\xa5\x1f\xd7\x99~\xab+$!A\xfb\xcb\xfd\x18\x03\x9f\xfbD\x83\x81\x1f\xa1\xbb\xb0',
-    'bob@test': b"&\x14\n'\x06Y;\xae.\xb6\xb7\xbf\xf4\xa7'QZ\xd1\x161\xa1\x00\xa8\xb0\xdcm\xb4\x1d\x9b\xackJ",
-    'mallory@test': b"\xad&\xb4'\xe9\x00\xd3\x0cSk\t\xff\x9c\xd0L\xd4\x90]u>\t\x8a\xb3\xe2\n/\xa8\x91\xc4\xd1\xaa\xc1"
-}
+alice = User(
+    'alice@test',
+    b'\xceZ\x9f\xe4\x9a\x19w\xbc\x12\xc8\x98\xd1CB\x02vS\xa4\xfe\xc8\xc5\xa6\xcd\x87\x90\xd7\xabJ\x1f$\x87\xc4',
+    b'\xa7\n\xb2\x94\xbb\xe6\x03\xd3\xd0\xd3\xce\x95\xe6\x8b\xfe5`(\x15\xc0UL\xe9\x1dTf^ m\xb7\xbc\\'
+)
 
+bob = User(
+    'bob@test',
+    b'\xc3\xc9(\xf7\\\xd2\xb4[\x85\xe5\xfa\xd3\xad\xbc9\xc6Y\xa3%G{\x08ks\xc5\xff\xb3\x97\xf6\xdf\x8b\x0f',
+    b'!\x94\x93\xda\x0cC\xc6\xeb\x80\xbc$\x8f\xaf\xeb\x83\xcb`T\xcf\x96R\x97{\xd5Nx\x0c\x04\xe96a\xb0'
+)
 
-@attr.s
-class User:
-    id = attr.ib()
-    privkey = attr.ib()
+mallory = User(
+    'mallory@test',
+    b'sD\xae\x91^\xae\xcc\xe7.\x89\xc8\x91\x9f\xa0t>B\x93\x07\xe7\xb5\xb0\x81\xb1\x07\xf0\xe5\x9b\x91\xd0`:',
+    b'\xcd \x7f\xf5\x91\x17=\xda\x856Sz\xe0\xf9\xc6\x82!O7g9\x01`s\xdd\xeeoj\xcb\xe7\x0e\xc5'
+)
 
-    @property
-    def pubkey(self):
-        return self.privkey.public_key
-
-
-for userid, userkey in TEST_USERS.items():
-    locals()[userid.split('@')[0]] = User(userid, PrivateKey(userkey))
+TEST_USERS = {user.id: user for user in (alice, bob, mallory)}
 
 
 # `unittest.mock.patch` doesn't work as decorator on async functions
@@ -52,6 +54,9 @@ def _get_unused_port():
     return port
 
 
+### CORE helpers ###
+
+
 class CoreAppTesting(CoreApp):
     def test_connect(self, auth_as=None):
         return ConnectToCore(self, auth_as)
@@ -64,12 +69,12 @@ class ConnectToCore:
 
     async def __aenter__(self):
         self.sock = trio.socket.socket()
-        if self.auth_as and self.core.auth_user != self.auth_as:
+        if self.auth_as and (not self.core.auth_user or self.core.auth_user.id != self.auth_as):
             assert self.auth_as in TEST_USERS
-            privkey = TEST_USERS[self.auth_as]
+            user = TEST_USERS[self.auth_as]
             if self.core.auth_user:
                 await self.core.logout()
-            await self.core.login(self.auth_as, privkey)
+            await self.core.login(user)
         await self.sock.connect(self.core.socket_bind_opts)
         cookedsock = CookedSocket(self.sock)
         return cookedsock
@@ -194,5 +199,67 @@ def with_populated_local_storage(user='alice'):
             assert isinstance(core, CoreAppTesting), 'missing `@with_core` parent decorator !'
             populate_local_storage_cls(user, core.mocked_local_storage_cls)
             await testfunc(core, *args, **kwargs)
+        return wrapper
+    return decorator
+
+
+### BACKEND helpers ###
+
+
+class BackendAppTesting(BackendApp):
+    def test_connect(self, auth_as=None):
+        return ConnectToBackend(self, auth_as)
+
+
+class ConnectToBackend:
+    def __init__(self, backend, auth_as):
+        self.backend = backend
+        self.auth_as = auth_as
+
+    async def __aenter__(self):
+        self.sock = trio.socket.socket()
+        await self.sock.connect((self.backend.host, self.backend.port))
+        cookedsock = CookedSocket(self.sock)
+        if self.auth_as:
+            assert self.auth_as in TEST_USERS
+            user = TEST_USERS[self.auth_as]
+            # Handshake
+            hds1 = await cookedsock.recv()
+            assert hds1['handshake'] == 'challenge', hds1
+            answer = user.signkey.sign(from_jsonb64(hds1['challenge']))
+            print('sign %r => %r' % (from_jsonb64(hds1['challenge']), answer))
+            hds2 = {'handshake': 'answer', 'identity': self.auth_as, 'answer': to_jsonb64(answer)}
+            await cookedsock.send(hds2)
+            hds3 = await cookedsock.recv()
+            assert hds3 == {'status': 'ok', 'handshake': 'done'}, hds3
+        return cookedsock
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self.sock.close()
+
+
+def with_backend(config=None):
+    config = config or {}
+    config['HOST'] = '127.0.0.1' 
+    config['PORT'] = _get_unused_port()
+
+    def decorator(testfunc):
+
+        # @wraps(testfunc)
+        async def wrapper(*args, **kwargs):
+            backend = BackendAppTesting(config)
+            for userid, user in TEST_USERS.items():
+                await backend.pubkey.add(userid, user.pubkey.encode(), user.verifykey.encode())
+
+            async def run_test_and_cancel_scope(nursery):
+                await testfunc(backend, *args, **kwargs)
+                nursery.cancel_scope.cancel()
+
+            async with trio.open_nursery() as nursery:
+                nursery.start_soon(backend.run)
+                with trio.move_on_after(1) as cancel_scope:
+                    await backend.server_ready.wait()
+                assert not cancel_scope.cancelled_caught, 'Backend starting timeout...'
+                nursery.start_soon(run_test_and_cancel_scope, nursery)
         return wrapper
     return decorator

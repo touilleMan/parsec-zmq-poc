@@ -4,6 +4,8 @@ import json
 from functools import partial
 from marshmallow import Schema, fields, validates_schema, ValidationError
 from pendulum import Pendulum
+from nacl.public import PrivateKey
+from nacl.signing import SigningKey
 
 
 BUFFSIZE = 4049
@@ -116,3 +118,21 @@ def abort(status='bad_message', **kwargs):
     error = ParsecError(**kwargs)
     error.status = status
     raise error
+
+
+@attr.s(init=False)
+class User:
+    id = attr.ib()
+
+    def __init__(self, id, privkey, signkey):
+        self.id = id
+        self.privkey = PrivateKey(privkey)
+        self.signkey = SigningKey(signkey)
+
+    @property
+    def pubkey(self):
+        return self.privkey.public_key
+
+    @property
+    def verifykey(self):
+        return self.signkey.verify_key

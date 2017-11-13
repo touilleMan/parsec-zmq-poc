@@ -121,7 +121,6 @@ def populate_local_storage_cls(user, mocked_local_storage_cls):
     }
     store.placeholder_file_manifests[new_txt_placeholder_id] = SecretBox(new_txt_placeholder_key).encrypt(json.dumps(new_txt_placeholder_fm).encode())
 
-
     # Finally, create the dirty user manifest
 
     local_user_manifest = {

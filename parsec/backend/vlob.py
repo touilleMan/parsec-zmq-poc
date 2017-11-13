@@ -95,9 +95,18 @@ class BaseVlobComponent:
         await self.update(**msg)
         return {'status': 'ok'}
 
+    async def create(self, blob, id=None):
+        raise NotImplementedError()
+
+    async def read(self, id, trust_seed, version=None):
+        raise NotImplementedError()
+
+    async def update(self, id, trust_seed, version, blob):
+        raise NotImplementedError()
+
 
 @attr.s
-class MockedVlobComponent:
+class MockedVlobComponent(BaseVlobComponent):
     vlobs = attr.ib(default=attr.Factory(dict))
 
     async def create(self, blob, id=None):

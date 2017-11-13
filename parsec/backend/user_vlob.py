@@ -43,6 +43,12 @@ class BaseUserVlobComponent:
         await self.update(client_ctx.id, **msg)
         return {'status': 'ok'}
 
+    async def read(self, id, version):
+        raise NotImplementedError()
+
+    async def update(self, id, version, blob):
+        raise NotImplementedError()
+
 
 @attr.s
 class MockedUserVlobComponent(BaseUserVlobComponent):
