@@ -39,20 +39,23 @@ class CoreApp:
         return None
 
     async def _serve_client(self, client_sock):
-        sock = CookedSocket(client_sock)
-        while True:
-            req = await sock.recv()
-            if not req:  # Client disconnected
-                print('CLIENT DISCONNECTED')
-                return
-            print('REQ %s' % req)
-            cmd_func = getattr(self, '_cmd_%s' % req['cmd'].upper())
-            try:
-                rep = await cmd_func(req)
-            except ParsecError as err:
-                rep = err.to_dict()
-            print('REP %s' % rep)
-            await sock.send(rep)
+        # TODO: handle client not closing there part of the socket...
+        print('server sock', client_sock)
+        with client_sock:
+            sock = CookedSocket(client_sock)
+            while True:
+                req = await sock.recv()
+                if not req:  # Client disconnected
+                    print('CLIENT DISCONNECTED')
+                    return
+                print('REQ %s' % req)
+                cmd_func = getattr(self, '_cmd_%s' % req['cmd'].upper())
+                try:
+                    rep = await cmd_func(req)
+                except ParsecError as err:
+                    rep = err.to_dict()
+                print('REP %s' % rep)
+                await sock.send(rep)
 
     async def _wait_clients(self, nursery):
         with trio.socket.socket(self.socket_type) as listen_sock:

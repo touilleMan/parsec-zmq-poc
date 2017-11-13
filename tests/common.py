@@ -76,6 +76,7 @@ class ConnectToCore:
                 await self.core.logout()
             await self.core.login(user)
         await self.sock.connect(self.core.socket_bind_opts)
+        print('client sock', self.sock)
         cookedsock = CookedSocket(self.sock)
         return cookedsock
 
@@ -146,39 +147,47 @@ def mocked_local_storage_cls_factory():
     return mls_cls
 
 
-def with_core(config=None, mocked_local_storage=True):
+async def _test_core_factory(config=None, mocked_get_user=True):
     config = config or {}
     config['ADDR'] = 'tcp://127.0.0.1:%s' % _get_unused_port()
-    config['BACKEND_ADDR'] = 'tcp://127.0.0.1:%s' % _get_unused_port()
+    core = CoreAppTesting(config)
+
+    def _get_user(id, password):
+        user = TEST_USERS.get(id)
+        if user:
+            return user.privkey.encode(), user.signkey.encode()
+
+    if mocked_get_user:
+        core._get_user = _get_user
+    return core
 
 
-    # Backend connection not supported yet
-    class MockedBackendConnection:
-        def __init__(self, *args, **kwargs):
-            pass
-        async def init(self, *args, **kwargs):
-            pass
-        async def teardown(self, *args, **kwargs):
-            pass
+def with_core(config=None, backend_config=None, mocked_get_user=True, mocked_local_storage=True, with_backend=True):
+    config = config or {}
 
     def decorator(testfunc):
-
         # @wraps(testfunc)
         async def wrapper(*args, **kwargs):
-            core = CoreAppTesting(config)
+            backend = await _test_backend_factory(backend_config)
+            config['BACKEND_ADDR'] = 'tcp://127.0.0.1:%s' % backend.port
+            core = await _test_core_factory(config, mocked_get_user)
 
             async def run_test_and_cancel_scope(nursery):
                 if mocked_local_storage:
                     mocked_local_storage_cls = mocked_local_storage_cls_factory()
                     core.mocked_local_storage_cls = mocked_local_storage_cls
-                    with patch('parsec.core.local_fs.BackendConnection', MockedBackendConnection):
-                        with patch('parsec.core.local_fs.LocalStorage', mocked_local_storage_cls):
-                            await testfunc(core, *args, **kwargs)
+                    with patch('parsec.core.local_fs.LocalStorage', mocked_local_storage_cls):
+                        await testfunc(core, *args, **kwargs)
                 else:
                     await testfunc(core, *args, **kwargs)
                 nursery.cancel_scope.cancel()
 
             async with trio.open_nursery() as nursery:
+                if with_backend:
+                    nursery.start_soon(backend.run)
+                    with trio.move_on_after(1) as cancel_scope:
+                        await backend.server_ready.wait()
+                    assert not cancel_scope.cancelled_caught, 'Backend starting timeout...'
                 nursery.start_soon(core.run)
                 with trio.move_on_after(1) as cancel_scope:
                     await core.server_ready.wait()
@@ -227,8 +236,11 @@ class ConnectToBackend:
             hds1 = await cookedsock.recv()
             assert hds1['handshake'] == 'challenge', hds1
             answer = user.signkey.sign(from_jsonb64(hds1['challenge']))
-            print('sign %r => %r' % (from_jsonb64(hds1['challenge']), answer))
-            hds2 = {'handshake': 'answer', 'identity': self.auth_as, 'answer': to_jsonb64(answer)}
+            hds2 = {
+                'handshake': 'answer',
+                'identity': self.auth_as,
+                'answer': to_jsonb64(answer)
+            }
             await cookedsock.send(hds2)
             hds3 = await cookedsock.recv()
             assert hds3 == {'status': 'ok', 'handshake': 'done'}, hds3
@@ -238,18 +250,23 @@ class ConnectToBackend:
         self.sock.close()
 
 
-def with_backend(config=None):
+async def _test_backend_factory(config=None):
     config = config or {}
     config['HOST'] = '127.0.0.1' 
-    config['PORT'] = _get_unused_port()
+    config.setdefault('PORT', _get_unused_port())
+    backend = BackendAppTesting(config)
+    for userid, user in TEST_USERS.items():
+        await backend.pubkey.add(userid, user.pubkey.encode(), user.verifykey.encode())
+    return backend
+
+
+def with_backend(config=None):
 
     def decorator(testfunc):
 
         # @wraps(testfunc)
         async def wrapper(*args, **kwargs):
-            backend = BackendAppTesting(config)
-            for userid, user in TEST_USERS.items():
-                await backend.pubkey.add(userid, user.pubkey.encode(), user.verifykey.encode())
+            backend = await _test_backend_factory(config)
 
             async def run_test_and_cancel_scope(nursery):
                 await testfunc(backend, *args, **kwargs)

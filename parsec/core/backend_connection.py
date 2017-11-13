@@ -2,7 +2,11 @@ import trio
 from urllib.parse import urlparse
 from nacl.signing import SigningKey
 
-from .utils import from_jsonb64, to_jsonb64, CookedSocket
+from .utils import from_jsonb64, to_jsonb64, CookedSocket, ParsecError
+
+
+class BackendNotAvailable(ParsecError):
+    label = 'backend_not_available'
 
 
 class BackendConnection:
@@ -16,7 +20,11 @@ class BackendConnection:
 
     async def send(self, req):
         await self.req_queue.put(req)
-        return await self.rep_queue.get()
+        rep = await self.rep_queue.get()
+        if not rep:
+            raise BackendNotAvailable('Try later...')
+        return rep
+
 
     async def init(self, nursery):
         self.nursery = nursery
@@ -28,10 +36,14 @@ class BackendConnection:
     async def ping(self):
         pass
 
-    async def _backend_connection(self):
-        with trio.socket.socket() as sock:
-            await sock.connect((self.addr.hostname, self.addr.port))
-            sock = CookedSocket(sock)
+    async def _connect_to_backend(self):
+        """
+        Connect to the backend and assume handshake
+        """
+        try:
+            rawsock = trio.socket.socket()
+            await rawsock.connect((self.addr.hostname, self.addr.port))
+            sock = CookedSocket(rawsock)
             # Handshake
             hds1 = await sock.recv()
             assert hds1['handshake'] == 'challenge', hds1
@@ -41,10 +53,36 @@ class BackendConnection:
             await sock.send(hds2)
             hds3 = await sock.recv()
             assert hds3 == {'status': 'ok', 'handshake': 'done'}, hds3
-            # Regular communication
-            while True:
-                # TODO: handle disconnection
-                req = await self.req_queue.get()
-                await sock.send(req)
-                rep = await sock.recv()
-                await self.req_queue.put(rep)
+            return sock
+        except (ConnectionRefusedError, Exception):
+            # TODO: Fix this ugliness
+            return None
+
+    async def _backend_connection(self):
+        # First start the connection
+        sock = await self._connect_to_backend()
+        while True:
+            # TODO: handle disconnection
+            req = await self.req_queue.get()
+            if not sock:
+                sock = await self._connect_to_backend()
+                if not sock:
+                    await self.req_queue.put(None)
+                    continue
+            try:
+                with trio.socket.socket() as sock:
+                    await sock.send(req)
+                    rep = await sock.recv()
+            except Exception:
+                sock = await self._connect_to_backend()
+                if not sock:
+                    await self.req_queue.put(None)
+                    continue
+                try:
+                    with trio.socket.socket() as sock:
+                        await sock.send(req)
+                        rep = await sock.recv()
+                except Exception:
+                    await self.req_queue.put(None)
+                    continue
+            await self.req_queue.put(rep)

@@ -97,6 +97,7 @@ class BackendApp:
             await sock.send({'status': 'bad_identity'})
 
     async def _serve_client(self, client_sock):
+        # TODO: handle client not closing there part of the socket...
         with client_sock:
             sock = CookedSocket(client_sock)
             print('START HANDSHAKE')
