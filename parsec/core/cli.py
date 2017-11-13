@@ -65,7 +65,7 @@ def _core(socket, backend_host, backend_watchdog, debug, i_am_john):
     config = {
         **CONFIG,
         'DEBUG': debug,
-        'BACKEND_URL': backend_host,
+        'BACKEND_ADDR': backend_host,
         'BACKEND_WATCHDOG': backend_watchdog,
         'ADDR': socket
     }
