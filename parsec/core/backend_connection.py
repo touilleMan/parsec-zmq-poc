@@ -25,7 +25,6 @@ class BackendConnection:
             raise BackendNotAvailable('Try later...')
         return rep
 
-
     async def init(self, nursery):
         self.nursery = nursery
         nursery.start_soon(self._backend_connection)
@@ -34,7 +33,7 @@ class BackendConnection:
         pass
 
     async def ping(self):
-        pass
+        await self.send({'cmd': 'ping', 'ping': ''})
 
     async def _connect_to_backend(self):
         """
@@ -53,6 +52,7 @@ class BackendConnection:
             await sock.send(hds2)
             hds3 = await sock.recv()
             assert hds3 == {'status': 'ok', 'handshake': 'done'}, hds3
+            # TODO: should also register to even to listen here
             return sock
         except (ConnectionRefusedError, Exception):
             # TODO: Fix this ugliness

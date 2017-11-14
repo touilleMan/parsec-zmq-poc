@@ -1,5 +1,6 @@
 import trio
 import socket
+import inspect
 import attr
 from collections import defaultdict
 from unittest.mock import Mock, patch
@@ -34,6 +35,16 @@ mallory = User(
 )
 
 TEST_USERS = {user.id: user for user in (alice, bob, mallory)}
+
+
+def almost_wraps(wrapped, to_add=(), to_remove=1):
+    # Test function using decorator like `with_core` will have one more param
+    # (the `core` object that we are going to provide), hence we have to
+    # fake the list of parameters seen by pytest to avoid it thinking this
+    # `core` param is an unknown fixture
+    args = [*inspect.getargspec(wrapped).args[to_remove:], *to_add]
+    signature = eval("""lambda %s: None""" % ', '.join(args))
+    return wraps(signature)
 
 
 # `unittest.mock.patch` doesn't work as decorator on async functions
@@ -166,7 +177,7 @@ def with_core(config=None, backend_config=None, mocked_get_user=True, mocked_loc
     config = config or {}
 
     def decorator(testfunc):
-        # @wraps(testfunc)
+        @almost_wraps(testfunc)
         async def wrapper(*args, **kwargs):
             backend = await _test_backend_factory(backend_config)
             config['BACKEND_ADDR'] = 'tcp://127.0.0.1:%s' % backend.port
@@ -263,9 +274,8 @@ async def _test_backend_factory(config=None):
 def with_backend(config=None):
 
     def decorator(testfunc):
-
-        # @wraps(testfunc)
-        async def wrapper(*args, **kwargs):
+        @almost_wraps(testfunc, ['backend_store'])
+        async def wrapper(backend_store, *args, **kwargs):
             backend = await _test_backend_factory(config)
 
             async def run_test_and_cancel_scope(nursery):
